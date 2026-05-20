@@ -1,0 +1,17 @@
+{
+	"files.exclude": {
+		"**/release.rbxlx": true,
+		"**/flamework.*": true,
+		"**/*-lock.*": true,
+		"**/*.lock": true,
+
+		"**/patches": true,
+		"**/.turbo": true,
+
+		"node_modules": true,
+		"out": true,
+
+		".gitattributes": true,
+		".gitignore": true
+	}
+}

@@ -1,0 +1,22 @@
+{
+	"$schema": "https://turbo.build/schema.json",
+	"tasks": {
+		"build": {
+			"outputs": ["./release.rbxlx"],
+			"persistent": true,
+			"cache": true
+		},
+		"compile": {
+			"outputs": ["out/**/*"],
+			"inputs": ["src/**/*"],
+			"persistent": true,
+			"cache": true
+		},
+		"watch": {
+			"outputs": ["out/**/*"],
+			"inputs": ["src/**/*"],
+			"persistent": true,
+			"cache": true
+		}
+	}
+}

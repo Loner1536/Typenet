@@ -1,0 +1,25 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "CommonJS",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"strict": true,
+
+		"jsx": "react",
+		"jsxFactory": "Vide.jsx",
+		"jsxFragmentFactory": "Vide.Fragment",
+
+		"rootDir": "src",
+		"outDir": "out",
+		"moduleDetection": "force",
+		"typeRoots": ["node_modules/@rbxts"],
+		"allowSyntheticDefaultImports": true,
+		"resolveJsonModule": true,
+		"experimentalDecorators": true,
+		"downlevelIteration": true,
+
+		"declaration": true
+	},
+	"include": ["src"]
+}

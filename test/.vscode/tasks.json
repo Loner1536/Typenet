@@ -1,0 +1,26 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build",
+			"command": "bun x turbo run build",
+			"group": "build",
+			"type": "shell"
+		},
+		{
+			"label": "Compile",
+			"command": "bun x turbo run compile",
+			"group": "build",
+			"type": "shell"
+		},
+		{
+			"label": "Dev",
+			"command": "bun x turbo run dev",
+			"group": "build",
+			"type": "shell",
+			"presentation": {
+				"echo": false
+			}
+		}
+	]
+}

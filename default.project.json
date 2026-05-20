@@ -1,0 +1,6 @@
+{
+	"name": "forge-app",
+	"tree": {
+		"$path": "out/"
+	}
+}
