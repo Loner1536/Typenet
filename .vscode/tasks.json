@@ -8,8 +8,8 @@
 			"type": "shell"
 		},
 		{
-			"label": "Compile All",
-			"command": "bun x turbo run compile-all",
+			"label": "Watch",
+			"command": "bun run watch",
 			"group": "build",
 			"type": "shell"
 		},

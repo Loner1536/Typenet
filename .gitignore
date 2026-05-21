@@ -15,6 +15,7 @@ out/
 build/
 release.rbxlx
 release.rbxl
+.last-pkg
 
 # Temporary artifacts
 *.tmp

@@ -1,0 +1,114 @@
+{
+    "folders": [
+        { "name": "package", "path": "../package" },
+        { "name": "test", "path": "../test" }
+    ],
+    "settings": {
+        "files.exclude": {
+            "**/release.rbxlx": true,
+            "**/flamework.*": true,
+            "**/*-lock.*": true,
+		    "**/*.lock.*": true,
+            "**/*.lock": true,
+            "**/patches": true,
+            "**/.turbo": true,
+            "node_modules": false,
+            "test": true,
+            "out": true,
+            ".gitattributes": true,
+            ".gitignore": true
+        }
+    },
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "watch package",
+                "type": "shell",
+                "command": "bun run watch",
+                "options": { "cwd": "${workspaceFolder:package}" },
+                "isBackground": true,
+                "hide": true,
+                "problemMatcher": [],
+                "presentation": {
+                    "group": "dev",
+                    "panel": "dedicated"
+                }
+            },
+            {
+                "label": "compile package",
+                "type": "shell",
+                "command": "bun run compile",
+                "options": { "cwd": "${workspaceFolder:package}" },
+                "isBackground": true,
+                "hide": true,
+                "problemMatcher": [],
+                "presentation": {
+                    "group": "dev",
+                    "panel": "dedicated",
+                    "close": true
+                }
+            },
+            {
+                "label": "dev test",
+                "type": "shell",
+                "command": "bun run dev",
+                "options": { "cwd": "${workspaceFolder:test}" },
+                "isBackground": true,
+                "hide": true,
+                "problemMatcher": [],
+                "presentation": {
+                    "group": "dev",
+                    "panel": "dedicated"
+                }
+            },
+            {
+                "label": "compile test",
+                "type": "shell",
+                "command": "bun run compile",
+                "options": { "cwd": "${workspaceFolder:test}" },
+                "isBackground": true,
+                "hide": true,
+                "problemMatcher": [],
+                "presentation": {
+                    "group": "dev",
+                    "panel": "dedicated",
+                    "close": true
+                }
+            },
+            {
+                "label": "Install",
+                "type": "shell",
+                "command": "bun i",
+                "options": { "cwd": "${workspaceFolder:package}/.." },
+                "group": "build",
+                "problemMatcher": []
+            },
+            {
+                "label": "Build",
+                "type": "shell",
+                "command": "bun run build",
+                "options": { "cwd": "${workspaceFolder:test}" },
+                "group": "build",
+                "problemMatcher": []
+            },
+            {
+                "label": "Compile",
+                "dependsOn": ["compile package", "compile test"],
+                "dependsOrder": "sequence",
+                "group": "build",
+                "problemMatcher": []
+            },
+            {
+                "label": "Dev",
+                "dependsOn": ["watch package", "dev test"],
+                "dependsOrder": "parallel",
+                "group": {
+                    "kind": "build",
+                    "isDefault": true
+                },
+                "problemMatcher": []
+            }
+        ]
+    }
+}
