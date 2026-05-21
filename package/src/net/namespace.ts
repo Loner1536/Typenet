@@ -4,6 +4,9 @@ import Object from "@rbxts/object-utils";
 // Types
 import * as Types from "../types";
 
+// Sync
+import { createSynced, NetSynced } from "../sync/synced";
+
 // Net
 import { createFunction, NetFunction } from "./function";
 import { createEvent, NetEvent } from "./event";
@@ -11,8 +14,13 @@ import { createEvent, NetEvent } from "./event";
 type EventDef<T> = { _kind: "event"; config: Types.EventConfig<T> };
 type FuncDef<TReq, TRes> = { _kind: "func"; config: Types.FunctionConfig<TReq, TRes> };
 
+type SyncedDef<T> = { _kind: "synced"; config: Types.SyncedConfig<T> };
+
 /** A record of event and function definitions used to define a namespace's shape. */
-export type NamespaceDef = Record<string, EventDef<unknown> | FuncDef<unknown, unknown>>;
+export type NamespaceDef = Record<
+	string,
+	EventDef<unknown> | FuncDef<unknown, unknown> | SyncedDef<any>
+>;
 
 /** Resolves a `NamespaceDef` into its corresponding `NetEvent` and `NetFunction` instances. */
 type ResolveNamespace<Def extends NamespaceDef> = {
@@ -20,8 +28,22 @@ type ResolveNamespace<Def extends NamespaceDef> = {
 		? NetEvent<T>
 		: Def[K] extends FuncDef<infer TReq, infer TRes>
 			? NetFunction<TReq, TRes>
-			: never;
+			: Def[K] extends SyncedDef<infer T>
+				? NetSynced<T>
+				: never;
 };
+
+/**
+ * Defines a networked event entry for use inside `createNamespace`.
+ *
+ * @param config - The event configuration, including data codec and filter.
+ *
+ * @example
+ * defineSynced({ data: t.str(64), filter: (player, data) => data })
+ */
+export function defineSynced<T>(config: Types.SyncedConfig<T>): SyncedDef<T> {
+	return { _kind: "synced", config };
+}
 
 /**
  * Defines a networked event entry for use inside `createNamespace`.
@@ -60,6 +82,7 @@ export function defineFunc<TReq, TRes>(
  * const PlayerNet = createNamespace("Player", {
  *     Died: defineEvent({ data: t.str(64) }),
  *     GetScore: defineFunc({ request: t.str(64), response: t.u32 }),
+ *     Data: defineSynced({ data: t.str(64), filter: (player, data) => data })
  * });
  *
  * PlayerNet.Died.fireServer(data);
@@ -72,7 +95,7 @@ export function createNamespace<Def extends NamespaceDef>(
 	const out = {} as ResolveNamespace<Def>;
 
 	for (const [key, value] of Object.entries(def) as Array<
-		[string, EventDef<unknown> | FuncDef<unknown, unknown>]
+		[string, EventDef<unknown> | FuncDef<unknown, unknown> | SyncedDef<any>]
 	>) {
 		if (value._kind === "event") {
 			(out as Record<string, unknown>)[key] = createEvent(
@@ -85,6 +108,12 @@ export function createNamespace<Def extends NamespaceDef>(
 				namespaceName,
 				key,
 				value.config as Types.FunctionConfig<unknown, unknown>,
+			);
+		} else if (value._kind === "synced") {
+			(out as Record<string, unknown>)[key] = createSynced(
+				namespaceName,
+				key,
+				value.config as Types.SyncedConfig<unknown>,
 			);
 		}
 	}

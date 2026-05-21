@@ -1,7 +1,7 @@
 {
-	"name": "@rbxts/net",
+	"name": "@rbxts/typenet",
 	"version": "0.0.1",
-	"description": "A Roblox logging library for TypeScript developers.",
+	"description": "High-performance, namespace-based network architecture for roblox-ts, enforced by strict type validation.",
 	"main": "out/init.luau",
 	"types": "out/index.d.ts",
 	"packageManager": "bun@1.3.1",
@@ -13,14 +13,14 @@
 	"keywords": [
 		"roblox-ts"
 	],
-	"author": "YOUR_NAME",
+	"author": "Loner1536",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "YOUR_REPO_URL"
+		"url": "https://github.com/Loner1536/Typenet"
 	},
 	"bugs": {
-		"url": "YOUR_REPO_URL_ISSUES"
+		"url": "https://github.com/Loner1536/Typenet/issues"
 	},
 	"files": [
 		"out",
@@ -32,6 +32,7 @@
 		"access": "public"
 	},
 	"dependencies": {
+		"@rbxts/charm": "^0.10.0",
 		"@rbxts/lync": "github:Loner1536/lync#main",
 		"@rbxts/object-utils": "^1.0.4",
 		"@rbxts/pretty-react-hooks": "^0.6.4",

@@ -1,3 +1,6 @@
+// Utils
+import { writeVarLen } from "../utils";
+
 const INITIAL_CAPACITY = 512;
 
 /**
@@ -18,21 +21,6 @@ export type Channel = {
 	/** Returns the number of bytes currently written to the channel. */
 	byteLength(): number;
 };
-
-/**
- * Writes a payload length as a varint (1 byte if < 128, 2 bytes otherwise).
- * Returns the number of bytes written.
- */
-function writeVarLen(buf: buffer, offset: number, len: number): number {
-	if (len < 128) {
-		buffer.writeu8(buf, offset, len);
-		return 1;
-	} else {
-		buffer.writeu8(buf, offset, (len & 0x7f) | 0x80);
-		buffer.writeu8(buf, offset + 1, len >> 7);
-		return 2;
-	}
-}
 
 /**
  * Creates a new channel starting with a 512-byte buffer that doubles in capacity as needed.

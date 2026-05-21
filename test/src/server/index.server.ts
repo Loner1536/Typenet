@@ -1,21 +1,36 @@
 // Package
-import { ReplicatedStorage } from "@rbxts/services";
+import { Players, ReplicatedStorage } from "@rbxts/services";
+import TypeNet from "@rbxts/typenet";
 import Lync from "@rbxts/lync";
-import Net from "@rbxts/net";
 
 // Shared
 import type { ReceivedMap } from "@shared/benches";
 import Network from "@shared/network";
+import State from "@shared/state";
 
+TypeNet.start();
 Lync.start();
-Net.start();
 
-Network.Net.Test.response((_player, str) => {
-	print(str);
+// Network.Net.Query.Test.response((_player, str) => print(str));
+
+// Network.Lync.Test.handle((str, _player) => {
+// 	print(str);
+// });
+
+Players.PlayerAdded.Connect((player) => {
+	State.Player.set(player, { clicks: 0, items: [{ test: "1" }, { test: "2" }, { test: "3" }] });
+
+	task.delay(4, () => {
+		State.Player.update(player, (data) => {
+			data.items.remove(0);
+
+			return data;
+		});
+	});
 });
 
-Network.Lync.Test.handle((str, _player) => {
-	print(str);
+Players.PlayerRemoving.Connect((player) => {
+	State.Player.remove(player);
 });
 
 const received: ReceivedMap = {
@@ -25,16 +40,16 @@ const received: ReceivedMap = {
 	string: { Net: 0, Lync: 0 },
 };
 
-Network.Net.BoolArray.on(() => {
+Network.Net.Bench.BoolArray.on(() => {
 	received["bool[]"].Net += 1;
 });
-Network.Net.Bool.on(() => {
+Network.Net.Bench.Bool.on(() => {
 	received["bool"].Net += 1;
 });
-Network.Net.StructArray.on(() => {
+Network.Net.Bench.StructArray.on(() => {
 	received["struct[]"].Net += 1;
 });
-Network.Net.Str.on(() => {
+Network.Net.Bench.Str.on(() => {
 	received["string"].Net += 1;
 });
 

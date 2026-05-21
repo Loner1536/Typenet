@@ -11,11 +11,13 @@
 		"@flamework/components": "^1.3.2",
 		"@flamework/core": "^1.3.2",
 		"@flamework/networking": "^1.3.2",
+		"@rbxts/charm": "^0.10.0",
 		"@rbxts/lync": "github:Loner1536/lync#main",
-		"@rbxts/net": "workspace:*",
 		"@rbxts/object-utils": "^1.0.4",
+		"@rbxts/react-charm": "^0.3.0",
 		"@rbxts/services": "^1.6.0",
 		"@rbxts/signal": "^1.1.1",
+		"@rbxts/typenet": "workspace:*",
 		"@rbxts/vide": "^0.6.1"
 	},
 	"devDependencies": {

@@ -21,6 +21,7 @@ let inbound: RemoteEvent;
 let inboundDirect: RemoteEvent;
 
 const playerChannels = new Map<Player, Channel>();
+const flushHooks: Array<() => void> = [];
 
 let flushConnection: RBXScriptConnection | undefined;
 let started = false;
@@ -125,10 +126,23 @@ export function start(): void {
 }
 
 /**
+ * Registers a callback to run at the start of every Heartbeat flush,
+ * before per-player channels are drained. Used by synced channels to
+ * write dirty payloads into channels before they go out on the wire.
+ */
+export function registerFlushHook(fn: () => void): void {
+	flushHooks.push(fn);
+}
+
+/**
  * Flushes all per-player channels, firing one `RemoteEvent` per dirty player.
  * Called automatically every Heartbeat after `start()`.
  */
 export function flush(): void {
+	for (const hook of flushHooks) {
+		hook();
+	}
+
 	for (const [player, channel] of playerChannels) {
 		const buf = channel.flush();
 		if (buf !== undefined) {
@@ -151,4 +165,5 @@ export function stop(): void {
 export function _reset(): void {
 	stop();
 	playerChannels.clear();
+	flushHooks.clear();
 }

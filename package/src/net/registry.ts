@@ -1,4 +1,4 @@
-export type RemoteKind = "event" | "function/request" | "function/response";
+export type RemoteKind = "event" | "function/request" | "function/response" | "synced";
 
 /** A registered remote entry with a stable u16 ID used for routing. */
 export type RemoteEntry = {

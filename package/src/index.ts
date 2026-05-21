@@ -2,7 +2,7 @@
 import { RunService } from "@rbxts/services";
 
 // Net
-import { defineEvent, defineFunc, createNamespace } from "./net/namespace";
+import { defineEvent, defineFunc, createNamespace, defineSynced } from "./net/namespace";
 import { measure, measureDirect } from "./net/measure";
 
 // Codec
@@ -36,6 +36,7 @@ function start(): void {
 
 const Net = {
 	start,
+	sync: defineSynced,
 	event: defineEvent,
 	func: defineFunc,
 	namespace: createNamespace,

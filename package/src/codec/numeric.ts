@@ -1,9 +1,8 @@
 // Codec
 import * as Types from "../types";
 
-function makeCodec<T>(codec: Types.InternalCodec<T>): Types.Codec<T> {
-	return codec as unknown as Types.Codec<T>;
-}
+// Utils
+import { makeCodec } from "../utils";
 
 /** Encodes/decodes an unsigned 8-bit integer (0–255). Wire size: 1 byte. */
 export const u8: Types.Codec<number> = makeCodec<number>({
