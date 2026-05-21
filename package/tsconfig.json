@@ -7,8 +7,8 @@
 		"strict": true,
 
 		"jsx": "react",
-		"jsxFactory": "Vide.jsx",
-		"jsxFragmentFactory": "Vide.Fragment",
+		"jsxFactory": "React.createElement",
+		"jsxFragmentFactory": "React.Fragment",
 
 		"rootDir": "src",
 		"outDir": "out",

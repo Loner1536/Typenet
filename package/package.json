@@ -1,5 +1,5 @@
 {
-	"name": "@rbxts/devlog",
+	"name": "@rbxts/net",
 	"version": "0.0.1",
 	"description": "A Roblox logging library for TypeScript developers.",
 	"main": "out/init.luau",
@@ -31,12 +31,11 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"peerDependencies": {
-		"@rbxts/vide": "^0.6.1"
-	},
 	"dependencies": {
 		"@rbxts/lync": "github:Loner1536/lync#main",
 		"@rbxts/object-utils": "^1.0.4",
+		"@rbxts/pretty-react-hooks": "^0.6.4",
+		"@rbxts/react": "^17.3.7-ts.1",
 		"@rbxts/services": "^1.6.0",
 		"@rbxts/set-timeout": "^1.1.2",
 		"concurrently": "^9.2.1",

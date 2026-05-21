@@ -26,6 +26,9 @@
 			"TSShared": {
 				"$path": "out/src/shared"
 			},
+			"GetReceived": {
+				"$className": "RemoteFunction"
+			},
 			"rbxts_include": {
 				"$path": "out/include",
 				"node_modules": {

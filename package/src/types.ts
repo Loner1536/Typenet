@@ -1,31 +1,41 @@
-export type TypeEntry = {
-	corner?: "top_right" | "top_left" | "bottom_right" | "bottom_left";
-	color?: Color3;
-	order?: number;
+// Transport
+import { Reader } from "./transport/reader";
+export { Reader };
+
+/** Opaque handle passed to event/function configs. Internal methods are not exposed. */
+export interface Codec<T> {
+	/** @hidden */ readonly _nominal_codec: T;
+}
+
+/** Internal codec interface. Plain object literals satisfy this — no brand required. */
+export interface InternalCodec<T> {
+	encode(buf: buffer, offset: number, value: T, baseline?: T): void;
+	decode(reader: Reader, baseline?: T): T;
+	measure(value: T, baseline?: T): number;
+}
+
+export type MeasureCallback = (bytes: number) => void;
+
+export type RateLimit = {
+	max: number;
+	window: number;
+	onExceeded?: (player: Player) => void;
 };
 
-export type DevLogEntry = {
-	target?: GuiObject;
-	manual?: boolean;
-
-	corners?: {
-		info?: TypeEntry;
-	};
-
-	px?: {
-		target?: GuiObject | undefined;
-		baseResolution?: Vector2;
-		minScale?: number;
-	};
+export type EventConfig<T> = {
+	data?: Codec<T>;
+	rateLimit?: RateLimit;
+	batch?: boolean;
 };
 
-export type CornerEntry = {
-	type: "INFO";
+export type FunctionConfig<TRequest, TResponse> = {
+	request?: Codec<TRequest>;
+	response?: Codec<TResponse>;
+	batch?: boolean;
+};
+
+export type MeasureResult = {
 	label: string;
-	tag: "client" | "server";
-	data: Record<string, unknown>;
-	time: number;
-	id: string;
+	bytes: number;
+	formatted: string;
 };
-
-export type Data = Record<string, unknown>;
