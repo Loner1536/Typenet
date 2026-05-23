@@ -1,13 +1,11 @@
 // Package
-import { RunService, ReplicatedStorage, Players } from "@rbxts/services";
+import { RunService, ReplicatedStorage } from "@rbxts/services";
 import { Stats } from "@rbxts/services";
 import Object from "@rbxts/object-utils";
-import TypeNet from "@rbxts/typenet";
 import Lync from "@rbxts/lync";
 
 // Shared
 import Network from "@shared/network";
-import State from "@shared/state";
 import {
 	boolArrayPool,
 	boolPool,
@@ -19,11 +17,7 @@ import {
 	type ReceivedMap,
 } from "@shared/benches";
 
-TypeNet.start();
 Lync.start();
-
-// Network.Net.Query.Test.request("Hello");
-// Network.Lync.Test.request("Hello");
 
 const benchmark = false;
 if (benchmark) {
@@ -36,8 +30,6 @@ if (benchmark) {
 	// ── Spec ──────────────────────────────────────────────────────────────────────
 
 	type BenchSpec = {
-		netFire: (d: defined) => void;
-		netBytes: () => number;
 		lyncFire: (d: defined) => void;
 		lyncBytes: () => number;
 		pool: defined[];
@@ -51,41 +43,41 @@ if (benchmark) {
 
 		return {
 			"bool[]": {
-				netFire: (d) => {
-					netBoolArrayBytes += TypeNet.measureDirect(Network.Net.Bench.BoolArray.codec!, d);
-					Network.Net.Bench.BoolArray.fireServer(d as boolean[]);
-				},
-				netBytes: () => netBoolArrayBytes,
+				// netFire: (d) => {
+				// 	netBoolArrayBytes += TypeNet.measureDirect(Network.Net.Bench.BoolArray.codec!, d);
+				// 	Network.Net.Bench.BoolArray.fireServer(d as boolean[]);
+				// },
+				// netBytes: () => netBoolArrayBytes,
 				lyncFire: (d) => Network.Lync.BoolArray.send(d as boolean[]),
 				lyncBytes: () => Network.Lync.BoolArray.stats().bytesSent,
 				pool: boolArrayPool as unknown as defined[],
 			},
 			bool: {
-				netFire: (d) => {
-					netBoolBytes += TypeNet.measureDirect(Network.Net.Bench.Bool.codec!, d);
-					Network.Net.Bench.Bool.fireServer(d as boolean);
-				},
-				netBytes: () => netBoolBytes,
+				// netFire: (d) => {
+				// 	netBoolBytes += TypeNet.measureDirect(Network.Net.Bench.Bool.codec!, d);
+				// 	Network.Net.Bench.Bool.fireServer(d as boolean);
+				// },
+				// netBytes: () => netBoolBytes,
 				lyncFire: (d) => Network.Lync.Bool.send(d as boolean),
 				lyncBytes: () => Network.Lync.Bool.stats().bytesSent,
 				pool: boolPool as unknown as defined[],
 			},
 			"struct[]": {
-				netFire: (d) => {
-					netStructArrayBytes += TypeNet.measureDirect(Network.Net.Bench.StructArray.codec!, d);
-					Network.Net.Bench.StructArray.fireServer(d as Entity[]);
-				},
-				netBytes: () => netStructArrayBytes,
+				// netFire: (d) => {
+				// 	netStructArrayBytes += TypeNet.measureDirect(Network.Net.Bench.StructArray.codec!, d);
+				// 	Network.Net.Bench.StructArray.fireServer(d as Entity[]);
+				// },
+				// netBytes: () => netStructArrayBytes,
 				lyncFire: (d) => Network.Lync.StructArray.send(d as Entity[]),
 				lyncBytes: () => Network.Lync.StructArray.stats().bytesSent,
 				pool: entityPool as unknown as defined[],
 			},
 			string: {
-				netFire: (d) => {
-					netStrBytes += TypeNet.measureDirect(Network.Net.Bench.Str.codec!, d);
-					Network.Net.Bench.Str.fireServer(d as string);
-				},
-				netBytes: () => netStrBytes,
+				// netFire: (d) => {
+				// 	netStrBytes += TypeNet.measureDirect(Network.Net.Bench.Str.codec!, d);
+				// 	Network.Net.Bench.Str.fireServer(d as string);
+				// },
+				// netBytes: () => netStrBytes,
 				lyncFire: (d) => Network.Lync.Str.send(d as string),
 				lyncBytes: () => Network.Lync.Str.stats().bytesSent,
 				pool: stringPool as unknown as defined[],
@@ -127,11 +119,11 @@ if (benchmark) {
 	};
 
 	function runAll(specs: Record<string, BenchSpec>): AllResults {
-		const accs: Record<string, { Net: Acc; Lync: Acc }> = {};
+		const accs: Record<string, { Lync: Acc }> = {};
 
 		for (const [label, spec] of Object.entries(specs)) {
 			accs[label] = {
-				Net: { sent: 0, lastBytes: spec.netBytes(), fps: 0, elapsed: 0, kbps: [], framerates: [] },
+				// Net: { sent: 0, lastBytes: spec.netBytes(), fps: 0, elapsed: 0, kbps: [], framerates: [] },
 				Lync: {
 					sent: 0,
 					lastBytes: spec.lyncBytes(),
@@ -150,27 +142,27 @@ if (benchmark) {
 			frame += 1;
 
 			for (const [label, spec] of Object.entries(specs)) {
-				const { Net: na, Lync: la } = accs[label];
+				const { Lync: la } = accs[label];
 
 				for (let i = 1; i <= MAX_FPF; i++) {
 					const item = spec.pool[(frame * 105 + i) % n];
-					na.sent += 1;
-					spec.netFire(item);
+					// na.sent += 1;
+					// spec.netFire(item);
 					la.sent += 1;
 					spec.lyncFire(item);
 				}
 
-				na.elapsed += dt;
-				if (na.elapsed >= 1) {
-					const now = spec.netBytes();
-					na.kbps.push(((now - na.lastBytes) * 8) / 1000);
-					na.lastBytes = now;
-					na.framerates.push(na.fps);
-					na.fps = 0;
-					na.elapsed = 0;
-				} else {
-					na.fps += 1;
-				}
+				// na.elapsed += dt;
+				// if (na.elapsed >= 1) {
+				// 	const now = spec.netBytes();
+				// 	na.kbps.push(((now - na.lastBytes) * 8) / 1000);
+				// 	na.lastBytes = now;
+				// 	na.framerates.push(na.fps);
+				// 	na.fps = 0;
+				// 	na.elapsed = 0;
+				// } else {
+				// 	na.fps += 1;
+				// }
 
 				la.elapsed += dt;
 				if (la.elapsed >= 1) {
@@ -191,13 +183,13 @@ if (benchmark) {
 
 		const results: AllResults = {};
 		for (const [label] of Object.entries(specs)) {
-			const { Net: na, Lync: la } = accs[label];
-			na.kbps.sort((a, b) => a < b);
-			na.framerates.sort((a, b) => a < b);
+			const { Lync: la } = accs[label];
+			// na.kbps.sort((a, b) => a < b);
+			// na.framerates.sort((a, b) => a < b);
 			la.kbps.sort((a, b) => a < b);
 			la.framerates.sort((a, b) => a < b);
 			results[label] = {
-				Net: { sent: na.sent, bandwidth: na.kbps, framerates: na.framerates },
+				// Net: { sent: na.sent, bandwidth: na.kbps, framerates: na.framerates },
 				Lync: { sent: la.sent, bandwidth: la.kbps, framerates: la.framerates },
 			};
 		}

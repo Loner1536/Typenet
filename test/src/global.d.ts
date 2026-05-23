@@ -3,7 +3,7 @@ declare namespace Type {
 		type Data = {
 			clicks: number;
 
-			items: Array<{ test: string }>;
+			test: number;
 		};
 	}
 }
