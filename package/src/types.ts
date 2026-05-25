@@ -14,7 +14,6 @@ export type InternalCodec<T> = Codec<T> & {
     encode: (writer: Writer, value: T) => void;
     decode: (reader: Reader) => LuaTuple<[T, number]>;
     _size: number;
-    _raw: true;
 };
 
 export type StatsPacket<T> = T extends undefined
