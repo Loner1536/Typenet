@@ -2,8 +2,8 @@
 import * as Types from "../types";
 
 // Internal
-import { send as sendPacket } from "../internal/sender";
-import { createListener } from "../internal/listener";
+import { send as sendPacket } from "../internal/dispatch";
+import { createListener } from "../internal/relay";
 import Registry from "../internal/registry";
 import Logger from "../internal/logger";
 import Stats from "../internal/stats";

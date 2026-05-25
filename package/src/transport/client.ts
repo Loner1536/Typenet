@@ -15,7 +15,23 @@ const FROM = "Client";
 const READY_BYTE = 0;
 
 type Listener = (reader: Reader) => void;
+type Encoder = (writer: Writer) => void;
+
 const listeners = new Map<number, Set<Listener>>();
+
+const reliableChannel = new Writer(512);
+const unreliableChannel = new Writer(512);
+
+function handle(data: buffer) {
+    const reader = new Reader(data);
+    const len = buffer.len(data);
+
+    while (reader.offset < len) {
+        const packetId = reader.u8();
+        const set = listeners.get(packetId);
+        if (set) for (const fn of set) fn(reader);
+    }
+}
 
 export function start() {
     assert(!RunService.IsServer(), "Client can only start on the client");
@@ -23,32 +39,28 @@ export function start() {
     const _reliable = reliable();
     const _unreliable = unreliable();
 
-    const handle = (data: string) => {
-        const buf = buffer.fromstring(data);
-        const reader = new Reader(buf);
-        const packetId = reader.u8();
-        const set = listeners.get(packetId);
-        if (set) for (const fn of set) fn(reader);
-    };
-
     _reliable.OnClientEvent.Connect(handle);
     _unreliable.OnClientEvent.Connect(handle);
 
-    const writer = new Writer(1);
-    writer.u8(READY_BYTE);
-    _reliable.FireServer(buffer.tostring(writer.toBuffer()));
+    const readyWriter = new Writer(1);
+    readyWriter.u8(READY_BYTE);
+    _reliable.FireServer(readyWriter.toBuffer());
     Logger.print(FROM, "Fired ready to server");
+
+    RunService.Heartbeat.Connect(() => {
+        if (reliableChannel.cursor > 0) {
+            _reliable.FireServer(reliableChannel.toBuffer());
+            reliableChannel.reset();
+        }
+        if (unreliableChannel.cursor > 0) {
+            _unreliable.FireServer(unreliableChannel.toBuffer());
+            unreliableChannel.reset();
+        }
+    });
 }
 
-export function send(data: unknown, isUnreliable: boolean) {
-    const _reliable = reliable();
-    const _unreliable = unreliable();
-
-    if (!isUnreliable) {
-        _reliable.FireServer(data);
-    } else {
-        _unreliable.FireServer(data);
-    }
+export function write(encode: Encoder, isUnreliable: boolean) {
+    encode(isUnreliable ? unreliableChannel : reliableChannel);
 }
 
 export function listen(packetId: number, fn: Listener) {
@@ -60,4 +72,4 @@ export function unlisten(packetId: number, fn: Listener) {
     listeners.get(packetId)?.delete(fn);
 }
 
-export default { start, send, listen, unlisten };
+export default { start, write, listen, unlisten };

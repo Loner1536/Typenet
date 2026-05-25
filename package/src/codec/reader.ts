@@ -1,55 +1,61 @@
 export default class Reader {
-    public offset = 0;
+    buf: buffer;
+    offset = 0;
 
-    constructor(public buf: buffer) { }
+    constructor(buf: buffer) {
+        this.buf = buf;
+    }
 
-    u8(): number {
-        const value = buffer.readu8(this.buf, this.offset);
+    reset(buf: buffer) {
+        this.buf = buf;
+        this.offset = 0;
+    }
+
+    u8() {
+        const v = buffer.readu8(this.buf, this.offset);
         this.offset += 1;
-        return value;
+        return v;
     }
-    u16(): number {
-        const value = buffer.readu16(this.buf, this.offset);
+    u16() {
+        const v = buffer.readu16(this.buf, this.offset);
         this.offset += 2;
-        return value;
+        return v;
     }
-    u32(): number {
-        const value = buffer.readu32(this.buf, this.offset);
+    u32() {
+        const v = buffer.readu32(this.buf, this.offset);
         this.offset += 4;
-        return value;
+        return v;
     }
-
-    i8(): number {
-        const value = buffer.readi8(this.buf, this.offset);
+    i8() {
+        const v = buffer.readi8(this.buf, this.offset);
         this.offset += 1;
-        return value;
+        return v;
     }
-    i16(): number {
-        const value = buffer.readi16(this.buf, this.offset);
+    i16() {
+        const v = buffer.readi16(this.buf, this.offset);
         this.offset += 2;
-        return value;
+        return v;
     }
-    i32(): number {
-        const value = buffer.readi32(this.buf, this.offset);
+    i32() {
+        const v = buffer.readi32(this.buf, this.offset);
         this.offset += 4;
-        return value;
+        return v;
     }
-
-    f32(): number {
-        const value = buffer.readf32(this.buf, this.offset);
+    f32() {
+        const v = buffer.readf32(this.buf, this.offset);
         this.offset += 4;
-        return value;
+        return v;
     }
-    f64(): number {
-        const value = buffer.readf64(this.buf, this.offset);
+    f64() {
+        const v = buffer.readf64(this.buf, this.offset);
         this.offset += 8;
-        return value;
+        return v;
     }
 
-    string(): string {
-        const length = this.u16();
-        const value = buffer.readstring(this.buf, this.offset, length);
-        this.offset += length;
-        return value;
+    string() {
+        const len = this.u16();
+        const v = buffer.readstring(this.buf, this.offset, len);
+        this.offset += len;
+        return v;
     }
 }

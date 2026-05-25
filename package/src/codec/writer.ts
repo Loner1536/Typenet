@@ -1,57 +1,80 @@
 export default class Writer {
-    private buf: buffer;
-    private offset = 0;
+    buf: buffer;
+    cursor = 0;
 
-    constructor(size: number = 512) {
+    constructor(size = 512) {
         this.buf = buffer.create(size);
     }
 
+    private ensure(bytes: number) {
+        const needed = this.cursor + bytes;
+        if (needed <= buffer.len(this.buf)) return;
+
+        let size = buffer.len(this.buf) * 2;
+        while (size < needed) size *= 2;
+
+        const grown = buffer.create(size);
+        buffer.copy(grown, 0, this.buf, 0, this.cursor);
+        this.buf = grown;
+    }
+
+    reset() {
+        this.cursor = 0;
+    }
+
     u8(value: number) {
-        buffer.writeu8(this.buf, this.offset, value);
-        this.offset++;
+        this.ensure(1);
+        buffer.writeu8(this.buf, this.cursor, value);
+        this.cursor += 1;
     }
     u16(value: number) {
-        buffer.writeu16(this.buf, this.offset, value);
-        this.offset += 2;
+        this.ensure(2);
+        buffer.writeu16(this.buf, this.cursor, value);
+        this.cursor += 2;
     }
     u32(value: number) {
-        buffer.writeu32(this.buf, this.offset, value);
-        this.offset += 4;
+        this.ensure(4);
+        buffer.writeu32(this.buf, this.cursor, value);
+        this.cursor += 4;
     }
-
     i8(value: number) {
-        buffer.writei8(this.buf, this.offset, value);
-        this.offset++;
+        this.ensure(1);
+        buffer.writei8(this.buf, this.cursor, value);
+        this.cursor += 1;
     }
     i16(value: number) {
-        buffer.writei16(this.buf, this.offset, value);
-        this.offset += 2;
+        this.ensure(2);
+        buffer.writei16(this.buf, this.cursor, value);
+        this.cursor += 2;
     }
     i32(value: number) {
-        buffer.writei32(this.buf, this.offset, value);
-        this.offset += 4;
+        this.ensure(4);
+        buffer.writei32(this.buf, this.cursor, value);
+        this.cursor += 4;
     }
-
     f32(value: number) {
-        buffer.writef32(this.buf, this.offset, value);
-        this.offset += 4;
+        this.ensure(4);
+        buffer.writef32(this.buf, this.cursor, value);
+        this.cursor += 4;
     }
     f64(value: number) {
-        buffer.writef64(this.buf, this.offset, value);
-        this.offset += 8;
+        this.ensure(8);
+        buffer.writef64(this.buf, this.cursor, value);
+        this.cursor += 8;
     }
 
     string(value: string) {
-        this.u16(value.size());
-
-        buffer.writestring(this.buf, this.offset, value, value.size());
-        this.offset += value.size();
+        const len = value.size();
+        this.ensure(2 + len);
+        buffer.writeu16(this.buf, this.cursor, len);
+        this.cursor += 2;
+        buffer.writestring(this.buf, this.cursor, value, len);
+        this.cursor += len;
     }
 
     toBuffer(): buffer {
-        const out = buffer.create(this.offset);
-        buffer.copy(out, 0, this.buf, 0, this.offset);
-
+        const out = buffer.create(this.cursor);
+        buffer.copy(out, 0, this.buf, 0, this.cursor);
         return out;
     }
 }

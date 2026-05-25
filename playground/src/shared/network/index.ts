@@ -4,7 +4,7 @@ import Lync from "@rbxts/lync";
 
 const Network = {
     Typenet: Channel("Test", {
-        unknown: Packet(t.none),
+        unknown: Packet(t.unknown),
     }),
     Lync: {
         unkown: Lync.packet("Test", Lync.unknown),

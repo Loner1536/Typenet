@@ -6,7 +6,6 @@ import type * as Types from "../types";
 
 // Codec
 import type Reader from "../codec/reader";
-import { decode } from "../codec/decoder";
 
 // Internal
 import Stats from "./stats";
@@ -37,16 +36,16 @@ export function createListener<T>(
 ): RBXScriptConnection {
     const handle = (reader: Reader, player?: Player) => {
         let data: T;
-        let bytes: number;
 
         if (codec) {
-            [data, bytes] = decode(codec, reader);
+            const before = reader.offset;
+            [data] = codec.decode(reader);
+            tracker.trackReceive(reader.offset - before);
         } else {
             data = undefined as T;
-            bytes = 0;
+            tracker.trackReceive(0);
         }
 
-        tracker.trackReceive(bytes);
         const resolvedPlayer = IS_SERVER ? player : Players.LocalPlayer;
 
         if (codec) {

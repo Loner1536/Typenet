@@ -6,45 +6,64 @@ import Logger from "../internal/logger";
 
 // Codec
 import Reader from "../codec/reader";
+import Writer from "../codec/writer";
 
 // Transport
 import { reliable, unreliable } from "./wire";
 
 const FROM = "Server";
-
-type Listener = (reader: Reader, player: Player) => void;
-
-type QueueEntry = { data: string; player: Player; unreliable: boolean };
-type BroadcastEntry = { data: string; unreliable: boolean };
-
-const readyPlayers = new Set<Player>();
-const listeners = new Map<number, Set<Listener>>();
-const pendingBroadcasts: BroadcastEntry[] = [];
-const broadcastQueue: BroadcastEntry[] = [];
-const pendingQueue: QueueEntry[] = [];
-const outQueue: QueueEntry[] = [];
-
 const READY_BYTE = 0;
 
-function handle(data: string, player: Player) {
-    const buf = buffer.fromstring(data);
-    const reader = new Reader(buf);
-    const packetId = reader.u8();
-    if (packetId === READY_BYTE) {
-        readyPlayers.add(player);
-        Logger.print(FROM, `${player.Name} ready`);
-        flushPending(player);
-        return;
+type Listener = (reader: Reader, player: Player) => void;
+type Encoder = (writer: Writer) => void;
+
+type PendingEntry = { player: Player; encode: Encoder; unreliable: boolean };
+type PendingBroadcast = { encode: Encoder; unreliable: boolean };
+
+const readyPlayers = new Set<Player>();
+
+const listeners = new Map<number, Set<Listener>>();
+
+const reliableChannels = new Map<Player, Writer>();
+const unreliableChannels = new Map<Player, Writer>();
+
+const pendingQueue: PendingEntry[] = [];
+const pendingBroadcasts: PendingBroadcast[] = [];
+
+function getChannel(player: Player, isUnreliable: boolean): Writer {
+    const map = isUnreliable ? unreliableChannels : reliableChannels;
+    let ch = map.get(player);
+    if (!ch) {
+        ch = new Writer(512);
+        map.set(player, ch);
     }
-    const set = listeners.get(packetId);
-    if (set) for (const fn of set) fn(reader, player);
+    return ch;
+}
+
+function handle(data: buffer, player: Player) {
+    const reader = new Reader(data);
+    const len = buffer.len(data);
+
+    while (reader.offset < len) {
+        const packetId = reader.u8();
+
+        if (packetId === READY_BYTE) {
+            readyPlayers.add(player);
+            Logger.print(FROM, `${player.Name} ready`);
+            flushPending(player);
+            return;
+        }
+
+        const set = listeners.get(packetId);
+        if (set) for (const fn of set) fn(reader, player);
+    }
 }
 
 function flushPending(player: Player) {
-    const remaining: QueueEntry[] = [];
+    const remaining: PendingEntry[] = [];
     for (const entry of pendingQueue) {
         if (entry.player === player) {
-            outQueue.push(entry);
+            entry.encode(getChannel(player, entry.unreliable));
         } else {
             remaining.push(entry);
         }
@@ -53,7 +72,7 @@ function flushPending(player: Player) {
     for (const entry of remaining) pendingQueue.push(entry);
 
     for (const entry of pendingBroadcasts) {
-        outQueue.push({ data: entry.data, player, unreliable: entry.unreliable });
+        entry.encode(getChannel(player, entry.unreliable));
     }
 
     Logger.print(FROM, `Flushed pending for ${player.Name}`);
@@ -65,53 +84,54 @@ export function start() {
     const _reliable = reliable();
     const _unreliable = unreliable();
 
-    _reliable.OnServerEvent.Connect((player, data) => handle(data as string, player));
-    _unreliable.OnServerEvent.Connect((player, data) => handle(data as string, player));
+    _reliable.OnServerEvent.Connect((player, data) => handle(data as buffer, player));
+    _unreliable.OnServerEvent.Connect((player, data) => handle(data as buffer, player));
 
     Players.PlayerRemoving.Connect((player) => {
         readyPlayers.delete(player);
+        reliableChannels.delete(player);
+        unreliableChannels.delete(player);
+
         const remaining = pendingQueue.filter((e) => e.player !== player);
         pendingQueue.clear();
         for (const entry of remaining) pendingQueue.push(entry);
+
         Logger.print(FROM, `${player.Name} removed`);
     });
 
     RunService.Heartbeat.Connect(() => {
-        for (const entry of broadcastQueue) {
-            for (const player of readyPlayers) {
-                if (entry.unreliable) {
-                    _unreliable.FireClient(player, entry.data);
-                } else {
-                    _reliable.FireClient(player, entry.data);
-                }
+        for (const player of readyPlayers) {
+            const rCh = reliableChannels.get(player);
+            if (rCh && rCh.cursor > 0) {
+                _reliable.FireClient(player, rCh.toBuffer());
+                rCh.reset();
             }
-        }
-        broadcastQueue.clear();
 
-        for (const entry of outQueue) {
-            if (entry.unreliable) {
-                _unreliable.FireClient(entry.player, entry.data);
-            } else {
-                _reliable.FireClient(entry.player, entry.data);
+            const uCh = unreliableChannels.get(player);
+            if (uCh && uCh.cursor > 0) {
+                _unreliable.FireClient(player, uCh.toBuffer());
+                uCh.reset();
             }
         }
-        outQueue.clear();
     });
 }
 
-export function queue(player: Player | "All", data: string, isUnreliable: boolean) {
+export function write(player: Player | "All", encode: Encoder, isUnreliable: boolean) {
     if (player === "All") {
         if (readyPlayers.size() === 0) {
-            pendingBroadcasts.push({ data, unreliable: isUnreliable });
+            pendingBroadcasts.push({ encode, unreliable: isUnreliable });
         } else {
-            broadcastQueue.push({ data, unreliable: isUnreliable });
+            for (const p of readyPlayers) {
+                encode(getChannel(p, isUnreliable));
+            }
         }
         return;
     }
+
     if (readyPlayers.has(player)) {
-        outQueue.push({ data, player, unreliable: isUnreliable });
+        encode(getChannel(player, isUnreliable));
     } else {
-        pendingQueue.push({ data, player, unreliable: isUnreliable });
+        pendingQueue.push({ player, encode, unreliable: isUnreliable });
     }
 }
 
@@ -128,4 +148,4 @@ export function isReady(player: Player) {
     return readyPlayers.has(player);
 }
 
-export default { start, flushPending, listen, unlisten, isReady, queue };
+export default { start, write, listen, unlisten, isReady };

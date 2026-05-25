@@ -5,7 +5,7 @@ import { RunService, Players } from "@rbxts/services";
 import type * as Types from "../types";
 
 // Codec
-import { encode, encodeRaw, encodeEmpty } from "../codec/encoder";
+import Writer from "../codec/writer";
 
 // Internal
 import Stats from "./stats";
@@ -16,14 +16,16 @@ import Client from "../transport/client";
 
 const IS_SERVER = RunService.IsServer();
 
-export function handleTarget(data: string, unreliable: boolean, target?: Types.SendTarget) {
-    if (IS_SERVER && !target) {
-        Server.queue("All", data, unreliable);
+type Encoder = (writer: Writer) => void;
+
+function handleTarget(encode: Encoder, unreliable: boolean, target?: Types.SendTarget) {
+    if (!target) {
+        Server.write("All", encode, unreliable);
     } else if (typeIs(target, "Instance") && target.IsA("Player")) {
-        Server.queue(target, data, unreliable);
+        Server.write(target, encode, unreliable);
     } else if (typeIs(target, "table") && !("Except" in (target as object))) {
         for (const player of target as Player[]) {
-            Server.queue(player, data, unreliable);
+            Server.write(player, encode, unreliable);
         }
     } else {
         const [, excluded] = target as ["Except", Player | Player[]];
@@ -32,7 +34,7 @@ export function handleTarget(data: string, unreliable: boolean, target?: Types.S
         );
         for (const player of Players.GetPlayers()) {
             if (!excludedSet.has(player)) {
-                Server.queue(player, data, unreliable);
+                Server.write(player, encode, unreliable);
             }
         }
     }
@@ -46,24 +48,21 @@ export function send<T>(
     dataOrTarget?: T | Types.SendTarget,
     target?: Types.SendTarget,
 ) {
-    let str: string;
-    let bytes: number;
+    let bytes = 0;
 
-    if (codec) {
-        if (codec._raw) {
-            [str, bytes] = encodeRaw(id, dataOrTarget);
-        } else {
-            [str, bytes] = encode(id, codec, dataOrTarget as T);
-        }
-        tracker.trackSend(bytes);
-    } else {
-        str = encodeEmpty(id);
-        tracker.trackSend(0);
-    }
+    // Pack Id with Buffer
+    const encode = (writer: Writer) => {
+        const before = writer.cursor;
+        writer.u8(id);
+        if (codec) codec.encode(writer, dataOrTarget as T);
+        bytes = writer.cursor - before;
+    };
 
     if (IS_SERVER) {
-        handleTarget(str, unreliable, codec ? target : (dataOrTarget as Types.SendTarget));
+        handleTarget(encode, unreliable, codec ? target : (dataOrTarget as Types.SendTarget));
     } else {
-        Client.send(str, unreliable);
+        Client.write(encode, unreliable);
     }
+
+    tracker.trackSend(bytes);
 }
