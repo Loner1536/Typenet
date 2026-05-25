@@ -1,5 +1,5 @@
 {
-	"name": "rbxts-packages-test",
+	"name": "rbxts-packages-playground",
 	"emitLegacyScripts": false,
 	"globIgnorePaths": [
 		"**/jest.config.luau/**",
@@ -44,7 +44,6 @@
 		},
 		"ServerStorage": {
 			"$className": "ServerStorage",
-
 			"stories": {
 				"$path": "out/src/stories"
 			}

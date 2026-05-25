@@ -1,7 +1,7 @@
 {
     "folders": [
         { "name": "Typenet", "path": "../package" },
-        { "name": "Test", "path": "../test" }
+        { "name": "Playground", "path": "../playground" }
     ],
     "settings": {
         "files.exclude": {
@@ -53,7 +53,7 @@
                 "label": "dev test",
                 "type": "shell",
                 "command": "bun run dev",
-                "options": { "cwd": "${workspaceFolder:Test}" },
+                "options": { "cwd": "${workspaceFolder:Playground}" },
                 "isBackground": true,
                 "hide": true,
                 "problemMatcher": [],
@@ -66,7 +66,7 @@
                 "label": "compile test",
                 "type": "shell",
                 "command": "bun run compile",
-                "options": { "cwd": "${workspaceFolder:Test}" },
+                "options": { "cwd": "${workspaceFolder:Playground" },
                 "isBackground": true,
                 "hide": true,
                 "problemMatcher": [],
@@ -88,7 +88,7 @@
                 "label": "Build",
                 "type": "shell",
                 "command": "bun run build",
-                "options": { "cwd": "${workspaceFolder:Test}" },
+                "options": { "cwd": "${workspaceFolder:Playground}" },
                 "group": "build",
                 "problemMatcher": []
             },

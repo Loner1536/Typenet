@@ -1,11 +1,10 @@
 {
-	"name": "test",
-	"packageManager": "bun@1.3.1",
+	"name": "playground",
 	"scripts": {
-		"build": "rojo build -o ./release.rbxlx",
+		"build": "rojo build -o ./playground.rbxlx",
 		"compile": "rbxtsc -p ./src -i ./out/include",
 		"watch": "rbxtsc -p ./src -i ./out/include -w",
-		"dev": "concurrently \"rojo serve default.project.json\" \"rbxtsc -p ./src -i ./out/include -w\""
+		"dev": "concurrently \"rojo serve default.project.json --address 0.0.0.0 \" \"rbxtsc -p ./src -i ./out/include -w\""
 	},
 	"dependencies": {
 		"@flamework/components": "^1.3.2",
@@ -38,5 +37,6 @@
 	},
 	"resolutions": {
 		"@rbxts/pebble": "npm:@rbxts/loner1536-pebble@0.1.4"
-	}
+	},
+	"packageManager": "bun@1.3.1"
 }

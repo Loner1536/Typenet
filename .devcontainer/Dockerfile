@@ -10,7 +10,7 @@ ENV PATH="$BUN_INSTALL/bin:$HOME/.rokit/bin:/workspaces/TS-UILib/node_modules/.b
 # ---------------- Essentials ----------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
       bash bash-completion zsh ca-certificates curl git sudo unzip tree docker.io \
-      openssh-client \
+      openssh-client procps lsof \
     && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/* \
@@ -19,7 +19,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo "root ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers \
     && chown -R root:root /home/root
 
-# Ensure shell for root
 RUN chsh -s /bin/zsh root
 
 # ---------------- User ----------------
