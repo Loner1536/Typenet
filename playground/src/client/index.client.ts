@@ -16,9 +16,11 @@ const unknown = "Unknown";
 const str = "String";
 
 // Network.Typenet.unknown.send(str);
-Network.Typenet.unknown.stats.on((_data, stats) => {
-    print("Typenet", stats);
-});
+Network.Typenet.unknown
+    .on((_data, stats) => {
+        print("Typenet", stats);
+    })
+    .stats();
 
 // Network.Typenet.string.send(str);
 // Network.Typenet.string.stats.on((_data, stats) => {

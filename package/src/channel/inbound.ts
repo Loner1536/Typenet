@@ -70,7 +70,7 @@ export function createListener<T>(
     codec: Types.InternalCodec<T> | undefined,
     fn: (data: T, player?: Player) => void,
     tracker?: Stats,
-    withStats?: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
+    withStats?: (data: T, player?: Player) => void,
 ): RBXScriptConnection {
     const handle = (reader: Reader, player?: Player) => {
         let data: T;
@@ -96,16 +96,10 @@ export function createListener<T>(
         }
 
         if (withStats) {
-            const snap = tracker ? tracker.snapshot() : undefined;
             if (codec) {
-                withStats(data, snap, resolvedPlayer);
+                withStats(data, resolvedPlayer);
             } else {
-                (
-                    withStats as unknown as (
-                        stats: Types.PacketStats | undefined,
-                        player?: Player,
-                    ) => void
-                )(snap, resolvedPlayer);
+                (withStats as unknown as (player?: Player) => void)(resolvedPlayer);
             }
         }
     };

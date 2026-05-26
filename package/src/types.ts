@@ -16,47 +16,38 @@ export type InternalCodec<T> = Codec<T> & {
     _size: number;
 };
 
-export type StatsPacket<T> = T extends undefined
-    ? {
-        snapshot: () => PacketStats | undefined;
-        on: (
-            fn: (stats: PacketStats | undefined, player?: Player) => void,
-        ) => RBXScriptConnection;
-        once: (
-            fn: (stats: PacketStats | undefined, player?: Player) => void,
-        ) => RBXScriptConnection;
-    }
-    : {
-        snapshot: () => PacketStats | undefined;
-        on: (
-            fn: (data: T, stats: PacketStats | undefined, player?: Player) => void,
-        ) => RBXScriptConnection;
-        once: (
-            fn: (data: T, stats: PacketStats | undefined, player?: Player) => void,
-        ) => RBXScriptConnection;
-    };
-
 type SendStats = {
     stats: (fn?: (stats: PacketStats | undefined) => void) => void;
 };
 
-export type Packet<T> = T extends undefined
+type ReceiveStats<T> = T extends undefined
     ? {
-        stats: StatsPacket<T>;
-        send: (target?: Player | Player[] | ["Except", Player | Player[]]) => SendStats;
-        on: (fn: (player?: Player) => void) => RBXScriptConnection;
-        once: (fn: (player?: Player) => void) => RBXScriptConnection;
+        stats: (
+            fn?: (stats: PacketStats | undefined, player?: Player) => void,
+        ) => RBXScriptConnection;
+        Disconnect: () => void;
     }
     : {
-        stats: StatsPacket<T>;
+        stats: (
+            fn?: (data: T, stats: PacketStats | undefined, player?: Player) => void,
+        ) => RBXScriptConnection;
+        Disconnect: () => void;
+    };
+
+export type Packet<T> = T extends undefined
+    ? {
+        send: (target?: Player | Player[] | ["Except", Player | Player[]]) => SendStats;
+        on: (fn: (player?: Player) => void) => ReceiveStats<T>;
+        once: (fn: (player?: Player) => void) => ReceiveStats<T>;
+    }
+    : {
         send: (
             data: T,
             target?: Player | Player[] | ["Except", Player | Player[]],
         ) => SendStats;
-        on: (fn: (data: T, player?: Player) => void) => RBXScriptConnection;
-        once: (fn: (data: T, player?: Player) => void) => RBXScriptConnection;
+        on: (fn: (data: T, player?: Player) => void) => ReceiveStats<T>;
+        once: (fn: (data: T, player?: Player) => void) => ReceiveStats<T>;
     };
-
 export type SendTarget = Player | Player[] | ["Except", Player | Player[]];
 
 export type PacketDefinition<T> = {

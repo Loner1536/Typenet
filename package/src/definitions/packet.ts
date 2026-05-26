@@ -41,19 +41,50 @@ export function definePacket<T>(
     const unreliable = opts?.unreliable ?? false;
     Logger.print(FROM, `Registered packet "${name}" [id: ${id}]`);
 
-    const on = (fn: (data: T, player?: Player) => void): RBXScriptConnection => {
+    const on = (fn: (data: T, player?: Player) => void) => {
         Logger.print(FROM, `Listener added to "${name}" [id: ${id}]`);
         const tracker = getStats(name);
-        return createListener(id, codec, fn, tracker);
+        const connection = createListener(id, codec, fn, tracker);
+
+        return {
+            stats: (
+                statsFn?: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
+            ): RBXScriptConnection => {
+                Logger.print(FROM, `Stats listener added to "${name}" [id: ${id}]`);
+                createListener(
+                    id,
+                    codec,
+                    () => { },
+                    tracker,
+                    (data, player) => {
+                        if (statsFn) {
+                            statsFn(data, tracker?.snapshot(), player);
+                        } else {
+                            print(`[TYPENET] ${name} received:`, tracker?.snapshot());
+                        }
+                    },
+                );
+                return connection;
+            },
+            Disconnect: () => connection.Disconnect(),
+        };
     };
 
-    const once = (fn: (data: T, player?: Player) => void): RBXScriptConnection => {
-        let connection!: RBXScriptConnection;
+    const once = (fn: (data: T, player?: Player) => void) => {
+        let connection!: ReturnType<typeof on>;
         connection = on((data, player) => {
             connection.Disconnect();
             fn(data, player);
         });
-        return connection;
+
+        return {
+            stats: (
+                statsFn?: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
+            ): RBXScriptConnection => {
+                return connection.stats(statsFn);
+            },
+            Disconnect: () => connection.Disconnect(),
+        };
     };
 
     const send = (dataOrTarget?: T | Types.SendTarget, target?: Types.SendTarget) => {
@@ -81,35 +112,7 @@ export function definePacket<T>(
         };
     };
 
-    const statsOn = (
-        fn: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
-    ): RBXScriptConnection => {
-        Logger.print(FROM, `Stats listener added to "${name}" [id: ${id}]`);
-        const tracker = getStats(name);
-        return createListener(id, codec, () => { }, tracker, fn);
-    };
-
-    const stats = {
-        snapshot: () => {
-            const tracker = getStats(name);
-            if (tracker) return tracker.snapshot();
-
-            return undefined;
-        },
-        on: statsOn,
-        once: (
-            fn: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
-        ): RBXScriptConnection => {
-            let connection!: RBXScriptConnection;
-            connection = statsOn((data, s, player) => {
-                connection.Disconnect();
-                fn(data, s, player);
-            });
-            return connection;
-        },
-    };
-
-    return { stats, send, once, on } as Types.Packet<T>;
+    return { send, on, once } as unknown as Types.Packet<T>;
 }
 
 export default function Packet(options?: Types.PacketOptions): Types.PacketDefinition<undefined>;
