@@ -10,6 +10,7 @@ import Registry, { getStats } from "../definitions/registry";
 
 // Debug
 import Logger from "../debug/logger";
+import Stats from "../debug/stats";
 
 const FROM = "Packet";
 
@@ -57,7 +58,27 @@ export function definePacket<T>(
 
     const send = (dataOrTarget?: T | Types.SendTarget, target?: Types.SendTarget) => {
         const tracker = getStats(name);
-        sendPacket(id, codec, unreliable, tracker, dataOrTarget, target);
+
+        let onFlush: ((state: Stats | undefined) => void) | undefined;
+
+        sendPacket(id, name, codec, unreliable, tracker, dataOrTarget, target, (stats) => {
+            task.defer(() => {
+                if (onFlush) onFlush(stats);
+            });
+        });
+
+        return {
+            stats: (fn?: (stats: Types.PacketStats | undefined) => void) => {
+                onFlush = (s) => {
+                    const snap = s?.snapshot();
+                    if (fn) {
+                        fn(snap);
+                    } else {
+                        print(`[TYPENET] ${name} sent:`, snap);
+                    }
+                };
+            },
+        };
     };
 
     const statsOn = (

@@ -107,6 +107,27 @@ Network.Game.Hello.send("world", ["Except", player]);
 Network.Game.Ping.send();
 ```
 
+### Send Stats
+
+`send()` returns a `.stats()` chain that fires after the packet flushes. Because you can call it from either the server or the client, it gives you visibility into whichever side you care about — server-side to inspect what you're broadcasting, or client-side to see what you're sending up. This makes it easy to debug both directions independently without needing a persistent listener.
+
+```ts
+// Auto-print to output — no callback needed, just drop it on any send
+Network.Game.Hello.send("world").stats();
+
+// Handle it yourself for custom logging or conditional logic
+Network.Game.Hello.send("world").stats((stats) => {
+    print(`sent ${stats?.sentBytes.total} bytes`);
+});
+
+// Works on the server too — inspect what's going out to players
+Network.Game.Hello.send("world", player).stats((stats) => {
+    print(`server sent ${stats?.sentBytes.total} bytes to ${player.Name}`);
+});
+```
+
+Unlike `stats.on` which listens to every fire, `.stats()` on a send is scoped to that single send — useful for one-off debugging or tracing a specific packet without wiring up a permanent listener.
+
 ---
 
 ## Receiving

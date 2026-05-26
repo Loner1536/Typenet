@@ -40,14 +40,20 @@ function getChannel(player: Player, isUnreliable: boolean): Writer {
     return ch;
 }
 
-function handleTarget(encode: Encoder, isUnreliable: boolean, target?: Types.SendTarget) {
+function handleTarget(
+    name: string,
+    encode: Encoder,
+    isUnreliable: boolean,
+    target?: Types.SendTarget,
+    onFlush?: (stats: Stats | undefined) => void,
+) {
     if (!target) {
-        write("All", encode, isUnreliable);
+        write(name, "All", encode, isUnreliable, onFlush);
     } else if (typeIs(target, "Instance") && target.IsA("Player")) {
-        write(target, encode, isUnreliable);
+        write(name, target, encode, isUnreliable, onFlush);
     } else if (typeIs(target, "table") && !("Except" in (target as object))) {
         for (const player of target as Player[]) {
-            write(player, encode, isUnreliable);
+            write(name, player, encode, isUnreliable, onFlush);
         }
     } else {
         const [, excluded] = target as ["Except", Player | Player[]];
@@ -56,7 +62,7 @@ function handleTarget(encode: Encoder, isUnreliable: boolean, target?: Types.Sen
         );
         for (const player of Players.GetPlayers()) {
             if (!excludedSet.has(player)) {
-                write(player, encode, isUnreliable);
+                write(name, player, encode, isUnreliable, onFlush);
             }
         }
     }
@@ -64,11 +70,13 @@ function handleTarget(encode: Encoder, isUnreliable: boolean, target?: Types.Sen
 
 export function send<T>(
     id: number,
+    name: string,
     codec: Types.InternalCodec<T> | undefined,
     isUnreliable: boolean,
     tracker?: Stats,
     dataOrTarget?: T | Types.SendTarget,
     target?: Types.SendTarget,
+    onFlush?: (stats: Stats | undefined) => void,
 ) {
     const encode = (writer: Writer) => {
         const before = writer.cursor;
@@ -81,16 +89,24 @@ export function send<T>(
     };
 
     if (IS_SERVER) {
-        handleTarget(encode, isUnreliable, codec ? target : (dataOrTarget as Types.SendTarget));
+        handleTarget(
+            name,
+            encode,
+            isUnreliable,
+            codec ? target : (dataOrTarget as Types.SendTarget),
+            onFlush,
+        );
     } else {
-        write(encode, isUnreliable);
+        write(name, encode, undefined, isUnreliable, onFlush);
     }
 }
 
 export function write(
+    name: string,
     player: Player | "All" | Encoder,
     encode?: Encoder | boolean,
     isUnreliable?: boolean,
+    onFlush?: (stats: Stats | undefined) => void,
 ) {
     if (IS_SERVER) {
         const p = player as Player | "All";
@@ -99,7 +115,7 @@ export function write(
 
         if (p === "All") {
             if (readyPlayers.size() === 0) {
-                pendingBroadcasts.push({ encode: enc, unreliable: unrel });
+                pendingBroadcasts.push({ encode: enc, unreliable: unrel, name, onFlush });
             } else {
                 for (const rp of readyPlayers) {
                     enc(getChannel(rp, unrel));
@@ -109,7 +125,7 @@ export function write(
             if (readyPlayers.has(p)) {
                 enc(getChannel(p, unrel));
             } else {
-                pendingQueue.push({ player: p, encode: enc, unreliable: unrel });
+                pendingQueue.push({ player: p, encode: enc, unreliable: unrel, name, onFlush });
             }
         }
     } else {
