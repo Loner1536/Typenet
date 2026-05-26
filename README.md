@@ -172,6 +172,12 @@ debug/           -- stats, logger, config
 
 ---
 
+## Luau Version
+
+A native Luau version of Typenet is not planned. I have no knowledge of Luau types, especially with the new type solver, so I won't be attempting one myself. If someone wants to take that on, contributions are welcome.
+
+---
+
 ## Acknowledgements
 
 [Lync](https://github.com/Axp3cter/Lync/tree/main) by Axp3cter — the library that made me realize how good Roblox networking could actually look.
