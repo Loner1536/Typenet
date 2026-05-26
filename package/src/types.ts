@@ -1,6 +1,6 @@
 // Codec
-import Reader from "./codec/reader";
-import Writer from "./codec/writer";
+import Reader from "./serial/reader";
+import Writer from "./serial/writer";
 
 export interface Codec<T> {
 	/** @hidden */ readonly _nominal_codec: T;
@@ -12,7 +12,7 @@ export type InferSchema<S extends Record<string, Codec<unknown>>> = {
 
 export type InternalCodec<T> = Codec<T> & {
     encode: (writer: Writer, value: T) => void;
-    decode: (reader: Reader) => LuaTuple<[T, number]>;
+    decode: (reader: Reader) => T;
     _size: number;
 };
 
@@ -69,22 +69,36 @@ export namespace Channel {
 }
 
 export type PacketStats = {
-    bytesSent: number;
-    bytesReceived: number;
+    sentBytes: {
+        raw: number;
+        overhead: number;
+        total: number;
 
+        totalRaw: number;
+        totalOverhead: number;
+        totalWire: number;
+    };
     totalFires: number;
-    totalReceived: number;
-
+    firstSentAt: number;
     lastSentAt: number;
+
+    // Receive
+    bytesReceived: number;
+    totalReceived: number;
+    firstReceivedAt: number;
     lastReceivedAt: number;
 
+    // Bandwidth
     averageBytes: number;
     peakBytes: number;
 
-    firstSentAt: number;
-    firstReceivedAt: number;
-
+    // Reliability
     totalDropped: number;
+    dropRate: number;
+
+    // Latency
+    roundTripTime: number;
+    lastRoundTripAt: number;
 };
 
 export type Options = {

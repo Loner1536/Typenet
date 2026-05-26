@@ -1,5 +1,5 @@
 // Root
-import Logger from "./logger";
+import Logger from "../debug/logger";
 
 const FROM = "Registry";
 

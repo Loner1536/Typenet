@@ -1,10 +1,10 @@
 // Internal
-import Config from "./config";
+import { debug } from "../debug/config";
 
 const HEADER = "TYPENET";
 
 function p(from: string, message: string) {
-    if (Config.debugEnabled()) print(`[${HEADER}:${from}] ${message}`);
+    if (debug) print(`[${HEADER}:${from}] ${message}`);
 }
 function w(from: string, message: string) {
     warn(`[${HEADER}:${from}] ${message}`);

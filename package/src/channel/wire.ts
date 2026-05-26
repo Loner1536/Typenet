@@ -15,23 +15,26 @@ if (IS_SERVER) {
     folder.Name = FOLDER_NAME;
     folder.Parent = ReplicatedStorage;
 
-    _reliable = new Instance("RemoteEvent");
-    _reliable.Name = RELIABLE_NAME;
-    _reliable.Parent = folder;
+    const reliable = new Instance("RemoteEvent");
+    reliable.Name = RELIABLE_NAME;
+    reliable.Parent = folder;
 
-    _unreliable = new Instance("UnreliableRemoteEvent");
-    _unreliable.Name = UNRELIABLE_NAME;
-    _unreliable.Parent = folder;
+    const unreliable = new Instance("UnreliableRemoteEvent");
+    unreliable.Name = UNRELIABLE_NAME;
+    unreliable.Parent = folder;
+
+    _reliable = reliable;
+    _unreliable = unreliable;
 } else {
     const folder = ReplicatedStorage.WaitForChild(FOLDER_NAME);
     _reliable = folder.WaitForChild(RELIABLE_NAME) as RemoteEvent;
     _unreliable = folder.WaitForChild(UNRELIABLE_NAME) as UnreliableRemoteEvent;
 }
 
-export function reliable(): RemoteEvent {
+export function reliable() {
     return _reliable;
 }
 
-export function unreliable(): UnreliableRemoteEvent {
+export function unreliable() {
     return _unreliable;
 }

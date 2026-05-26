@@ -16,10 +16,15 @@ const data = "Hello";
 
 Network.Typenet.unknown.send(data);
 Network.Typenet.unknown.stats.on((data, stats) => {
-    print("Typenet", data, stats);
+    print(
+        "Typenet",
+        data,
+        `raw: ${stats?.sentBytes.raw} overhead: ${stats?.sentBytes.overhead} total: ${stats?.sentBytes.total}`,
+        stats,
+    );
 });
 
-task.delay(2, () => Network.Lync.unkown.send(data, Lync.all));
-Network.Lync.unkown.on((data) => {
-    print("Lync", data);
-});
+// task.delay(2, () => Network.Lync.unkown.send(data, Lync.all));
+// Network.Lync.unkown.on((data) => {
+//     print("Lync", data);
+// });

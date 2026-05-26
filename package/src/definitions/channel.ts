@@ -2,7 +2,7 @@
 import * as Types from "../types";
 
 // Internal
-import Logger from "../internal/logger";
+import Logger from "../debug/logger";
 
 // API
 import { definePacket } from "./packet";

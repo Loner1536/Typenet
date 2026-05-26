@@ -1,35 +1,18 @@
 // Types
 import * as Types from "../types";
 
-// Internal
-import { send as sendPacket } from "../internal/dispatch";
-import { createListener } from "../internal/relay";
-import Registry from "../internal/registry";
-import Logger from "../internal/logger";
-import Stats from "../internal/stats";
+// Channel
+import { send as sendPacket } from "../channel/outbound";
+import { createListener } from "../channel/inbound";
+
+// Definitions
+import Registry from "../definitions/registry";
+
+// Debug
+import Logger from "../debug/logger";
+import Stats from "../debug/stats";
 
 const FROM = "Packet";
-
-export default function Packet(options?: Types.PacketOptions): Types.PacketDefinition<undefined>;
-export default function Packet<T>(
-    codec: Types.Codec<T>,
-    options?: Types.PacketOptions,
-): Types.PacketDefinition<T>;
-export default function Packet<T>(
-    codecOrOptions?: Types.Codec<T> | Types.PacketOptions,
-    options?: Types.PacketOptions,
-): Types.PacketDefinition<T | undefined> {
-    if (codecOrOptions === undefined || "unreliable" in (codecOrOptions as object)) {
-        return {
-            _codec: undefined,
-            _unreliable: (codecOrOptions as Types.PacketOptions)?.unreliable ?? false,
-        };
-    }
-    return {
-        _codec: codecOrOptions as Types.Codec<T>,
-        _unreliable: options?.unreliable ?? false,
-    };
-}
 
 export function definePacket(name: string, options?: Types.PacketOptions): Types.Packet<undefined>;
 export function definePacket<T>(
@@ -99,4 +82,25 @@ export function definePacket<T>(
     };
 
     return { stats, send, once, on } as Types.Packet<T>;
+}
+
+export default function Packet(options?: Types.PacketOptions): Types.PacketDefinition<undefined>;
+export default function Packet<T>(
+    codec: Types.Codec<T>,
+    options?: Types.PacketOptions,
+): Types.PacketDefinition<T>;
+export default function Packet<T>(
+    codecOrOptions?: Types.Codec<T> | Types.PacketOptions,
+    options?: Types.PacketOptions,
+): Types.PacketDefinition<T | undefined> {
+    if (codecOrOptions === undefined || "unreliable" in (codecOrOptions as object)) {
+        return {
+            _codec: undefined,
+            _unreliable: (codecOrOptions as Types.PacketOptions)?.unreliable ?? false,
+        };
+    }
+    return {
+        _codec: codecOrOptions as Types.Codec<T>,
+        _unreliable: options?.unreliable ?? false,
+    };
 }

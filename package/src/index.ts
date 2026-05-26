@@ -4,44 +4,47 @@ import { RunService } from "@rbxts/services";
 // Root
 import * as Types from "./types";
 
-// Internal
-import Logger from "./internal/logger";
-import Config from "./internal/config";
+// Definitions
+import definePacket from "./definitions/packet";
 
-// API
-import { definePacket } from "./api/packet";
+// Debug
+import { configure } from "./debug/config";
+import Logger from "./debug/logger";
 
-export { default as Channel } from "./api/channel";
-export { default as Packet } from "./api/packet";
+export { default as Channel } from "./definitions/channel";
+export { default as Packet } from "./definitions/packet";
 
-export { default as t } from "./codec";
+export { default as t } from "./serial";
 
 const FROM = "ROOT";
 const IS_SERVER = RunService.IsServer();
 const started = {
-    server: false,
-    client: false,
+    inbound: false,
+    unbound: false,
 };
 
 const Typenet = {
     set: (options: Types.Options) => {
-        if (IS_SERVER ? started.server : started.client) {
+        if (started.inbound || started.unbound) {
             Logger.warn(FROM, "Cannot set after starting systems");
             return;
         }
 
-        Config.set(options);
+        configure(options);
     },
     start: () => {
         if (IS_SERVER) {
-            import("./transport/server").then((transport) => {
-                transport.start();
-                started.server = true;
+            import("./channel/inbound").then((inbound) => {
+                inbound.start();
+
+                started.inbound = true;
             });
         } else {
-            import("./transport/client").then((transport) => {
-                transport.start();
-                started.client = true;
+            import("./channel/outbound").then((outbound) => {
+                if (IS_SERVER) outbound.startServer();
+                else outbound.startClient();
+
+                started.unbound = true;
             });
         }
     },
