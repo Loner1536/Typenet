@@ -107,30 +107,28 @@ Network.Game.Hello.send("world", ["Except", player]);
 Network.Game.Ping.send();
 ```
 
-### Send Stats
-
-`send()` returns a `.stats()` chain that fires after the packet flushes. Because you can call it from either the server or the client, it gives you visibility into whichever side you care about — server-side to inspect what you're broadcasting, or client-side to see what you're sending up. This makes it easy to debug both directions independently without needing a persistent listener.
+`send()` returns a `.stats()` chain that fires after the packet flushes. Because it can be called from either the server or the client, it gives you visibility into whichever side you care about — inspect what the server is broadcasting, or trace what the client is sending up.
 
 ```ts
-// Auto-print to output — no callback needed, just drop it on any send
+// Auto-print to output — no callback needed
 Network.Game.Hello.send("world").stats();
 
-// Handle it yourself for custom logging or conditional logic
+// Handle it yourself
 Network.Game.Hello.send("world").stats((stats) => {
     print(`sent ${stats?.sentBytes.total} bytes`);
 });
 
-// Works on the server too — inspect what's going out to players
+// Server-side — see what's going out to a specific player
 Network.Game.Hello.send("world", player).stats((stats) => {
-    print(`server sent ${stats?.sentBytes.total} bytes to ${player.Name}`);
+    print(`sent ${stats?.sentBytes.total} bytes to ${player.Name}`);
 });
 ```
-
-Unlike `stats.on` which listens to every fire, `.stats()` on a send is scoped to that single send — useful for one-off debugging or tracing a specific packet without wiring up a permanent listener.
 
 ---
 
 ## Receiving
+
+`on()` and `once()` both return a chainable object with `.stats()` and `.Disconnect()`. The original listener fires immediately on receive; the `.stats()` callback fires a frame later once stats have been updated, so the numbers are always accurate by the time you read them.
 
 ```ts
 // Listen
@@ -138,12 +136,37 @@ const connection = Network.Game.Hello.on((data, player) => {
     print(player?.Name, data);
 });
 
+connection.Disconnect();
+
+// Listen with stats — fires a frame after the main listener
+Network.Game.Hello.on((data, player) => {
+    print(player?.Name, data);
+}).stats((data, stats, player) => {
+    print(`received ${stats?.bytesReceived} bytes from ${player?.Name}`);
+});
+
+// Auto-print stats with no callback
+Network.Game.Hello.on((data, player) => {
+    print(data);
+}).stats();
+
 // Listen once
 Network.Game.Hello.once((data, player) => {
     print("First hello from", player?.Name);
 });
 
-// Disconnect
+// Listen once with stats
+Network.Game.Hello.once((data, player) => {
+    print(data);
+}).stats((data, stats, player) => {
+    print(`first receive: ${stats?.bytesReceived} bytes`);
+});
+
+// Disconnect is available on the chain too
+const connection = Network.Game.Hello.on((data, player) => {
+    print(data);
+});
+
 connection.Disconnect();
 ```
 
@@ -151,18 +174,7 @@ connection.Disconnect();
 
 ## Stats
 
-`stats.on`, `stats.once`, and `stats.snapshot` are always available regardless of whether `stats: true` is set. Without it, callbacks still fire but `stats` will always be `undefined` — so you can wire up your stats listeners without extra guards, just nothing will be tracked in the background.
-
-```ts
-// Snapshot
-const snap = Network.Game.Hello.stats.snapshot();
-print(snap?.sentBytes.total);
-
-// Listen with stats
-Network.Game.Hello.stats.on((data, stats, player) => {
-    print(`Received ${stats?.bytesReceived} bytes from ${player?.Name}`);
-});
-```
+Stats callbacks always fire regardless of whether `stats: true` is set — without it they still fire, but `stats` will always be `undefined`. This lets you wire up listeners freely without extra guards; nothing is tracked in the background until stats are enabled.
 
 ### Available fields
 
