@@ -11,6 +11,9 @@ import Reader from "../serial/reader";
 import { reliable, unreliable } from "./wire";
 import { onPlayerReady } from "./outbound";
 
+// Definitions
+import { createStats } from "../definitions/registry";
+
 // Debug
 import Stats from "../debug/stats";
 
@@ -27,7 +30,7 @@ function handleServer(data: buffer, player: Player) {
     const reader = new Reader(data);
     const len = buffer.len(data);
 
-    while (reader.offset < len) {
+    while (reader.cursor < len) {
         const packetId = reader.u8();
 
         if (packetId === READY_BYTE) {
@@ -44,7 +47,7 @@ function handleClient(data: buffer) {
     const reader = new Reader(data);
     const len = buffer.len(data);
 
-    while (reader.offset < len) {
+    while (reader.cursor < len) {
         const packetId = reader.u8();
         const set = clientListeners.get(packetId);
         if (set) for (const fn of set) fn(reader);
@@ -65,21 +68,23 @@ export function createConnection(disconnect: () => void): RBXScriptConnection {
 export function createListener<T>(
     id: number,
     codec: Types.InternalCodec<T> | undefined,
-    tracker: Stats,
     fn: (data: T, player?: Player) => void,
+    tracker?: Stats,
     withStats?: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
 ): RBXScriptConnection {
     const handle = (reader: Reader, player?: Player) => {
         let data: T;
 
         if (codec) {
-            const before = reader.offset;
+            const before = reader.cursor;
 
             data = codec.decode(reader);
-            tracker.trackReceive(reader.offset - before + 1);
+
+            if (tracker) tracker.trackReceive(reader.cursor - before + 1);
         } else {
             data = undefined as T;
-            tracker.trackReceive(1);
+
+            if (tracker) tracker.trackReceive(1);
         }
 
         const resolvedPlayer = IS_SERVER ? player : Players.LocalPlayer;
@@ -91,7 +96,7 @@ export function createListener<T>(
         }
 
         if (withStats) {
-            const snap = tracker.snapshot();
+            const snap = tracker ? tracker.snapshot() : undefined;
             if (codec) {
                 withStats(data, snap, resolvedPlayer);
             } else {
@@ -137,6 +142,8 @@ export function unlisten(id: number, fn: ServerListener | ClientListener) {
 export function start() {
     const _reliable = reliable();
     const _unreliable = unreliable();
+
+    createStats();
 
     if (IS_SERVER) {
         _reliable.OnServerEvent.Connect((player, data) => handleServer(data as buffer, player));

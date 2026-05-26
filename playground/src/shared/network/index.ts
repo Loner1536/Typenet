@@ -5,9 +5,11 @@ import Lync from "@rbxts/lync";
 const Network = {
     Typenet: Channel("Test", {
         unknown: Packet(t.unknown),
+        string: Packet(t.string),
     }),
     Lync: {
-        unkown: Lync.packet("Test", Lync.unknown),
+        unknown: Lync.packet("Unknown", Lync.unknown),
+        string: Lync.packet("String", Lync.string),
     },
 };
 

@@ -1,9 +1,6 @@
 // Root
 import * as Types from "../types";
 
-// Internal
-import { stats } from "../debug/config";
-
 export default class Stats {
     private stats: Types.PacketStats = {
         // Send
@@ -40,8 +37,6 @@ export default class Stats {
     };
 
     snapshot(): Types.PacketStats | undefined {
-        if (stats) return undefined;
-
         return {
             ...this.stats,
             sentBytes: { ...this.stats.sentBytes },

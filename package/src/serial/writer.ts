@@ -65,10 +65,8 @@ export default class Writer {
 
     string(value: string) {
         const len = value.size();
-        this.ensure(2 + len);
-        buffer.writeu16(this.buf, this.cursor, len);
-        this.cursor += 2;
-        buffer.writestring(this.buf, this.cursor, value, len);
+        this.u8(len);
+        buffer.writestring(this.buf, this.cursor, value);
         this.cursor += len;
     }
 

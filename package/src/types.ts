@@ -39,18 +39,18 @@ export type StatsPacket<T> = T extends undefined
 export type Packet<T> = T extends undefined
     ? {
         stats: StatsPacket<T>;
-        send: (target?: SendTarget) => void;
+        send: (target?: Player | Player[] | ["Except", Player | Player[]]) => void;
         on: (fn: (player?: Player) => void) => RBXScriptConnection;
         once: (fn: (player?: Player) => void) => RBXScriptConnection;
     }
     : {
         stats: StatsPacket<T>;
-        send: (data: T, target?: SendTarget) => void;
+        send: (data: T, target?: Player | Player[] | ["Except", Player | Player[]]) => void;
         on: (fn: (data: T, player?: Player) => void) => RBXScriptConnection;
         once: (fn: (data: T, player?: Player) => void) => RBXScriptConnection;
     };
 
-export type SendTarget = "All" | Player | Player[] | ["Except", Player | Player[]];
+export type SendTarget = Player | Player[] | ["Except", Player | Player[]];
 
 export type PacketDefinition<T> = {
     _codec: Codec<T> | undefined;

@@ -6,11 +6,10 @@ import { send as sendPacket } from "../channel/outbound";
 import { createListener } from "../channel/inbound";
 
 // Definitions
-import Registry from "../definitions/registry";
+import Registry, { getStats } from "../definitions/registry";
 
 // Debug
 import Logger from "../debug/logger";
-import Stats from "../debug/stats";
 
 const FROM = "Packet";
 
@@ -26,7 +25,6 @@ export function definePacket<T>(
     options?: Types.PacketOptions,
 ): Types.Packet<T | undefined> {
     const id = Registry.register(name);
-    const tracker = new Stats();
 
     let codec: Types.InternalCodec<T> | undefined;
     let opts: Types.PacketOptions | undefined;
@@ -44,7 +42,8 @@ export function definePacket<T>(
 
     const on = (fn: (data: T, player?: Player) => void): RBXScriptConnection => {
         Logger.print(FROM, `Listener added to "${name}" [id: ${id}]`);
-        return createListener(id, codec, tracker, fn);
+        const tracker = getStats(name);
+        return createListener(id, codec, fn, tracker);
     };
 
     const once = (fn: (data: T, player?: Player) => void): RBXScriptConnection => {
@@ -56,18 +55,26 @@ export function definePacket<T>(
         return connection;
     };
 
-    const send = (dataOrTarget?: T | Types.SendTarget, target?: Types.SendTarget) =>
+    const send = (dataOrTarget?: T | Types.SendTarget, target?: Types.SendTarget) => {
+        const tracker = getStats(name);
         sendPacket(id, codec, unreliable, tracker, dataOrTarget, target);
+    };
 
     const statsOn = (
         fn: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
     ): RBXScriptConnection => {
         Logger.print(FROM, `Stats listener added to "${name}" [id: ${id}]`);
-        return createListener(id, codec, tracker, () => { }, fn);
+        const tracker = getStats(name);
+        return createListener(id, codec, () => { }, tracker, fn);
     };
 
     const stats = {
-        snapshot: () => tracker.snapshot(),
+        snapshot: () => {
+            const tracker = getStats(name);
+            if (tracker) return tracker.snapshot();
+
+            return undefined;
+        },
         on: statsOn,
         once: (
             fn: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,

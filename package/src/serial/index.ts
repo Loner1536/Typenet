@@ -1,8 +1,13 @@
-// Codec
+// Roblox
 import unknown from "./roblox/unknown";
 
-const Codec = {
+// Composite
+import { default as str } from "./composites/string";
+
+const Serial = {
     unknown,
+
+    string: str,
 };
 
-export default Codec;
+export default Serial;

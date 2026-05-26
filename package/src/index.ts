@@ -11,6 +11,10 @@ import definePacket from "./definitions/packet";
 import { configure } from "./debug/config";
 import Logger from "./debug/logger";
 
+// Channel
+import * as Outbound from "./channel/outbound";
+import * as Inbound from "./channel/inbound";
+
 export { default as Channel } from "./definitions/channel";
 export { default as Packet } from "./definitions/packet";
 
@@ -19,13 +23,13 @@ export { default as t } from "./serial";
 const FROM = "ROOT";
 const IS_SERVER = RunService.IsServer();
 const started = {
-    inbound: false,
-    unbound: false,
+    server: false,
+    client: false,
 };
 
 const Typenet = {
     set: (options: Types.Options) => {
-        if (started.inbound || started.unbound) {
+        if (IS_SERVER ? started.server : started.client) {
             Logger.warn(FROM, "Cannot set after starting systems");
             return;
         }
@@ -34,18 +38,13 @@ const Typenet = {
     },
     start: () => {
         if (IS_SERVER) {
-            import("./channel/inbound").then((inbound) => {
-                inbound.start();
-
-                started.inbound = true;
-            });
+            Inbound.start();
+            Outbound.startServer();
+            started.server = true;
         } else {
-            import("./channel/outbound").then((outbound) => {
-                if (IS_SERVER) outbound.startServer();
-                else outbound.startClient();
-
-                started.unbound = true;
-            });
+            Inbound.start();
+            Outbound.startClient();
+            started.client = true;
         }
     },
 

@@ -9,7 +9,7 @@ import Writer from "../serial/writer";
 import Stats from "../debug/stats";
 
 // Channel
-import { reliable, unreliable } from "./wire";
+import { reliable } from "./wire";
 
 // Scheduler
 import { pendingQueue, pendingBroadcasts, flushPending } from "../scheduler/queue";
@@ -66,7 +66,7 @@ export function send<T>(
     id: number,
     codec: Types.InternalCodec<T> | undefined,
     isUnreliable: boolean,
-    tracker: Stats,
+    tracker?: Stats,
     dataOrTarget?: T | Types.SendTarget,
     target?: Types.SendTarget,
 ) {
@@ -77,7 +77,7 @@ export function send<T>(
         if (codec) codec.encode(writer, dataOrTarget as T);
         const after = writer.cursor;
 
-        tracker.trackSend(after - afterId, afterId - before);
+        if (tracker) tracker.trackSend(after - afterId, afterId - before);
     };
 
     if (IS_SERVER) {
@@ -120,9 +120,6 @@ export function write(
 }
 
 export function startServer() {
-    const _reliable = reliable();
-    const _unreliable = unreliable();
-
     Players.PlayerRemoving.Connect((player) => {
         readyPlayers.delete(player);
         reliableChannels.delete(player);
