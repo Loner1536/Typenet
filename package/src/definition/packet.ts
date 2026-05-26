@@ -6,7 +6,7 @@ import { send as sendPacket } from "../channel/outbound";
 import { createListener } from "../channel/inbound";
 
 // Definitions
-import Registry, { getStats } from "../definitions/registry";
+import Registry, { getStats } from "../definition/registry";
 
 // Debug
 import Logger from "../debug/logger";
@@ -42,28 +42,28 @@ export function definePacket<T>(
     Logger.print(FROM, `Registered packet "${name}" [id: ${id}]`);
 
     const on = (fn: (data: T, player?: Player) => void) => {
-        Logger.print(FROM, `Listener added to "${name}" [id: ${id}]`);
+        let statsFn:
+            | ((data: T, stats: Types.PacketStats | undefined, player?: Player) => void)
+            | undefined;
+
         const tracker = getStats(name);
-        const connection = createListener(id, codec, fn, tracker);
+        const connection = createListener(
+            id,
+            codec,
+            (data, player) => {
+                fn(data, player);
+                if (statsFn) statsFn(data, tracker?.snapshot(), player);
+            },
+            tracker,
+        );
 
         return {
-            stats: (
-                statsFn?: (data: T, stats: Types.PacketStats | undefined, player?: Player) => void,
-            ): RBXScriptConnection => {
-                Logger.print(FROM, `Stats listener added to "${name}" [id: ${id}]`);
-                createListener(
-                    id,
-                    codec,
-                    () => { },
-                    tracker,
-                    (data, player) => {
-                        if (statsFn) {
-                            statsFn(data, tracker?.snapshot(), player);
-                        } else {
-                            print(`[TYPENET] ${name} received:`, tracker?.snapshot());
-                        }
-                    },
-                );
+            stats: (sf?: typeof statsFn): RBXScriptConnection => {
+                statsFn =
+                    sf ??
+                    ((_data, stats, _player) => {
+                        print(`[TYPENET] ${name} received:`, stats);
+                    });
                 return connection;
             },
             Disconnect: () => connection.Disconnect(),

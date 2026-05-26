@@ -23,7 +23,13 @@ export default function Channel<S extends ChannelSchema>(
 ): ResolvedChannel<S> {
     const result = {} as ResolvedChannel<S>;
 
-    for (const [key, definition] of pairs(schema as ChannelSchema)) {
+    const ordered: [string, Types.PacketDefinition<unknown>][] = [];
+    for (const [key, def] of pairs(schema as ChannelSchema)) {
+        ordered.push([key, def]);
+    }
+    ordered.sort((a, b) => a[0] < b[0]);
+
+    for (const [key, definition] of ordered) {
         const packetName = `${name}/${key}`;
 
         (result as Record<string, unknown>)[key as string] = definePacket(

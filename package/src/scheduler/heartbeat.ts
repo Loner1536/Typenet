@@ -32,7 +32,11 @@ export function startHeartbeat(
     });
 }
 
-export function startClientHeartbeat(reliableChannel: Writer, unreliableChannel: Writer) {
+export function startClientHeartbeat(
+    reliableChannel: Writer,
+    unreliableChannel: Writer,
+    onFlushed: () => void,
+) {
     const _reliable = reliable();
     const _unreliable = unreliable();
 
@@ -40,10 +44,12 @@ export function startClientHeartbeat(reliableChannel: Writer, unreliableChannel:
         if (reliableChannel.cursor > 0) {
             _reliable.FireServer(reliableChannel.toBuffer());
             reliableChannel.reset();
+            onFlushed();
         }
         if (unreliableChannel.cursor > 0) {
             _unreliable.FireServer(unreliableChannel.toBuffer());
             unreliableChannel.reset();
+            onFlushed();
         }
     });
 }

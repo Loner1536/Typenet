@@ -12,7 +12,7 @@ import { reliable, unreliable } from "./wire";
 import { onPlayerReady } from "./outbound";
 
 // Definitions
-import { createStats } from "../definitions/registry";
+import { createStats } from "../definition/registry";
 
 // Debug
 import Stats from "../debug/stats";

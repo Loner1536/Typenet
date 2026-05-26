@@ -12,27 +12,12 @@ Typenet.set({
 Typenet.start();
 Lync.start();
 
-const unknown = "Unknown";
-const str = "String";
+const value = 255;
 
-// Network.Typenet.unknown.send(str);
-Network.Typenet.unknown
-    .on((_data, stats) => {
-        print("Typenet", stats);
-    })
-    .stats();
+Network.Typenet.u8.send(value).stats();
+Network.Typenet.u8.on(() => { }).stats();
 
-// Network.Typenet.string.send(str);
-// Network.Typenet.string.stats.on((_data, stats) => {
-//     print("Typenet", stats);
-// });
-
-// Network.Lync.unknown.send(unknown);
-// Network.Lync.unknown.on((data) => {
-//     print("Lync", data);
-// });
-
-// Network.Lync.string.send(str);
-// Network.Lync.string.on((data) => {
-//     print("Lync", data);
-// });
+Network.Lync.u8.send(value);
+Network.Lync.u8.on((data) => {
+    print("Lync", data);
+});

@@ -5,7 +5,7 @@ import { RunService } from "@rbxts/services";
 import * as Types from "./types";
 
 // Definitions
-import definePacket from "./definitions/packet";
+import definePacket from "./definition/packet";
 
 // Debug
 import { configure } from "./debug/config";
@@ -15,8 +15,8 @@ import Logger from "./debug/logger";
 import * as Outbound from "./channel/outbound";
 import * as Inbound from "./channel/inbound";
 
-export { default as Channel } from "./definitions/channel";
-export { default as Packet } from "./definitions/packet";
+export { default as Channel } from "./definition/channel";
+export { default as Packet } from "./definition/packet";
 
 export { default as t } from "./serial";
 

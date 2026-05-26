@@ -15,6 +15,9 @@ import { reliable } from "./wire";
 import { pendingQueue, pendingBroadcasts, flushPending } from "../scheduler/queue";
 import { startHeartbeat, startClientHeartbeat } from "../scheduler/heartbeat";
 
+// Definitions
+import { getStats } from "../definition/registry";
+
 // Internal
 import Logger from "../debug/logger";
 
@@ -29,6 +32,8 @@ const unreliableChannels = new Map<Player, Writer>();
 
 const reliableChannel = new Writer(512);
 const unreliableChannel = new Writer(512);
+
+const pendingClientFlushes: Array<{ name: string; fn: (stats: Stats | undefined) => void }> = [];
 
 function getChannel(player: Player, isUnreliable: boolean): Writer {
     const map = isUnreliable ? unreliableChannels : reliableChannels;
@@ -120,10 +125,12 @@ export function write(
                 for (const rp of readyPlayers) {
                     enc(getChannel(rp, unrel));
                 }
+                if (onFlush) onFlush(getStats(name));
             }
         } else {
             if (readyPlayers.has(p)) {
                 enc(getChannel(p, unrel));
+                if (onFlush) onFlush(getStats(name));
             } else {
                 pendingQueue.push({ player: p, encode: enc, unreliable: unrel, name, onFlush });
             }
@@ -132,6 +139,7 @@ export function write(
         const enc = player as Encoder;
         const unrel = encode as boolean;
         enc(unrel ? unreliableChannel : reliableChannel);
+        if (onFlush) pendingClientFlushes.push({ name, fn: onFlush });
     }
 }
 
@@ -159,7 +167,10 @@ export function startClient() {
     _reliable.FireServer(readyWriter.toBuffer());
     Logger.print("Client", "Fired ready to server");
 
-    startClientHeartbeat(reliableChannel, unreliableChannel);
+    startClientHeartbeat(reliableChannel, unreliableChannel, () => {
+        for (const entry of pendingClientFlushes) entry.fn(getStats(entry.name));
+        pendingClientFlushes.clear();
+    });
 }
 
 export function onPlayerReady(player: Player) {

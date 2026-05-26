@@ -2,7 +2,7 @@
 import Writer from "../serial/writer";
 
 // Definitions
-import { getStats } from "../definitions/registry";
+import { getStats } from "../definition/registry";
 
 type Encoder = (writer: Writer) => void;
 
