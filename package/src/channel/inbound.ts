@@ -4,18 +4,18 @@ import { RunService, Players } from "@rbxts/services";
 // Types
 import type * as Types from "../types";
 
-// Codec
+// Serial
 import Reader from "../serial/reader";
 
 // Channel
 import { reliable, unreliable } from "./wire";
 import { onPlayerReady } from "./outbound";
 
-// Definitions
-import { createStats } from "../definition/registry";
-
 // Debug
-import Stats from "../debug/stats";
+import { getStats } from "../debug/stats";
+
+// Helper
+import estimatePacketSize from "../helper/estimate_packet_size";
 
 const IS_SERVER = RunService.IsServer();
 const READY_BYTE = 0;
@@ -67,41 +67,37 @@ export function createConnection(disconnect: () => void): RBXScriptConnection {
 
 export function createListener<T>(
     id: number,
+    name: string,
     codec: Types.InternalCodec<T> | undefined,
     fn: (data: T, player?: Player) => void,
-    tracker?: Stats,
-    withStats?: (data: T, player?: Player) => void,
 ): RBXScriptConnection {
+    const senderContext = IS_SERVER ? "Client" : "Server";
+
     const handle = (reader: Reader, player?: Player) => {
+        const tracker = getStats(name);
         let data: T;
 
         if (codec) {
             const before = reader.cursor;
-
             data = codec.decode(reader);
+            const rawBytes = reader.cursor - before;
 
-            if (tracker) tracker.trackReceive(reader.cursor - before + 1);
+            if (tracker) {
+                const sliced = reader.slice(before, rawBytes);
+                const wireBytes = estimatePacketSize(senderContext, "RemoteEvent", sliced);
+                tracker.trackReceive(rawBytes, wireBytes);
+            }
         } else {
             data = undefined as T;
-
-            if (tracker) tracker.trackReceive(1);
+            if (tracker)
+                tracker.trackReceive(
+                    0,
+                    estimatePacketSize(senderContext, "RemoteEvent", buffer.create(0)),
+                );
         }
 
         const resolvedPlayer = IS_SERVER ? player : Players.LocalPlayer;
-
-        if (codec) {
-            fn(data, resolvedPlayer);
-        } else {
-            (fn as unknown as (player?: Player) => void)(resolvedPlayer);
-        }
-
-        if (withStats) {
-            if (codec) {
-                withStats(data, resolvedPlayer);
-            } else {
-                (withStats as unknown as (player?: Player) => void)(resolvedPlayer);
-            }
-        }
+        fn(data, resolvedPlayer);
     };
 
     if (IS_SERVER) {
@@ -136,8 +132,6 @@ export function unlisten(id: number, fn: ServerListener | ClientListener) {
 export function start() {
     const _reliable = reliable();
     const _unreliable = unreliable();
-
-    createStats();
 
     if (IS_SERVER) {
         _reliable.OnServerEvent.Connect((player, data) => handleServer(data as buffer, player));

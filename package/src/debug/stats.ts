@@ -1,6 +1,16 @@
 // Root
 import * as Types from "../types";
 
+const stats = new Map<string, Stats>();
+
+export function getStats(name: string): Stats | undefined {
+    return stats.get(name);
+}
+
+export function resetStats() {
+    stats.clear();
+}
+
 export default class Stats {
     private stats: Types.PacketStats = {
         // Send
@@ -8,7 +18,6 @@ export default class Stats {
             raw: 0,
             overhead: 0,
             total: 0,
-
             totalRaw: 0,
             totalOverhead: 0,
             totalWire: 0,
@@ -18,7 +27,14 @@ export default class Stats {
         lastSentAt: 0,
 
         // Receive
-        bytesReceived: 0,
+        receivedBytes: {
+            raw: 0,
+            overhead: 0,
+            total: 0,
+            totalRaw: 0,
+            totalOverhead: 0,
+            totalWire: 0,
+        },
         totalReceived: 0,
         firstReceivedAt: 0,
         lastReceivedAt: 0,
@@ -36,39 +52,55 @@ export default class Stats {
         lastRoundTripAt: 0,
     };
 
-    snapshot(): Types.PacketStats | undefined {
+    constructor(name: string) {
+        stats.set(name, this);
+    }
+
+    snapshot(): Types.PacketStats {
         return {
             ...this.stats,
             sentBytes: { ...this.stats.sentBytes },
+            receivedBytes: { ...this.stats.receivedBytes },
         };
     }
 
-    trackSend(raw: number, overhead: number) {
+    trackSend(rawBytes: number, wireBytes: number) {
         const now = os.clock();
-        const total = raw + overhead;
+        const overhead = wireBytes - rawBytes;
 
-        this.stats.sentBytes.raw = raw;
+        this.stats.sentBytes.raw = rawBytes;
         this.stats.sentBytes.overhead = overhead;
-        this.stats.sentBytes.total = total;
-
-        this.stats.sentBytes.totalRaw += raw;
+        this.stats.sentBytes.total = wireBytes;
+        this.stats.sentBytes.totalRaw += rawBytes;
         this.stats.sentBytes.totalOverhead += overhead;
-        this.stats.sentBytes.totalWire += total;
+        this.stats.sentBytes.totalWire += wireBytes;
+
+        this.stats.totalFires++;
 
         if (this.stats.firstSentAt === 0) this.stats.firstSentAt = now;
-        if (total > this.stats.peakBytes) this.stats.peakBytes = total;
+        this.stats.lastSentAt = now;
 
-        this.stats.averageBytes = this.stats.sentBytes.total / this.stats.totalFires;
+        if (wireBytes > this.stats.peakBytes) this.stats.peakBytes = wireBytes;
+        this.stats.averageBytes = this.stats.sentBytes.totalWire / this.stats.totalFires;
     }
 
-    trackReceive(bytes: number) {
+    trackReceive(rawBytes: number, wireBytes: number) {
         const now = os.clock();
+        const overhead = wireBytes - rawBytes;
+
+        this.stats.receivedBytes.raw = rawBytes;
+        this.stats.receivedBytes.overhead = overhead;
+        this.stats.receivedBytes.total = wireBytes;
+        this.stats.receivedBytes.totalRaw += rawBytes;
+        this.stats.receivedBytes.totalOverhead += overhead;
+        this.stats.receivedBytes.totalWire += wireBytes;
 
         this.stats.totalReceived++;
-        this.stats.bytesReceived += bytes;
-        this.stats.lastReceivedAt = now;
 
         if (this.stats.firstReceivedAt === 0) this.stats.firstReceivedAt = now;
+        this.stats.lastReceivedAt = now;
+
+        if (wireBytes > this.stats.peakBytes) this.stats.peakBytes = wireBytes;
     }
 
     trackRoundTrip(sentAt: number) {

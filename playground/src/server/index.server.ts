@@ -12,12 +12,16 @@ Typenet.set({
 Typenet.start();
 Lync.start();
 
-const value = 255;
+const value = 0xffffff;
 
-Network.Typenet.u8.send(value).stats();
-Network.Typenet.u8.on(() => { }).stats();
+// Network.Typenet.u32.send(value).stats();
+// Network.Typenet.u32.on(() => { });
 
-task.delay(2, () => Network.Lync.u8.send(value, Lync.all));
-Network.Lync.u8.on((data) => {
-    print("Lync", data);
+Network.Typenet.query.response(() => {
+    error("Test error");
 });
+
+// task.delay(2, () => Network.Lync.u32.send(value, Lync.all));
+// Network.Lync.u32.on((data) => {
+//     print("Lync", data);
+// });

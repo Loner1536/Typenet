@@ -13,7 +13,6 @@ export type InferSchema<S extends Record<string, Codec<unknown>>> = {
 export type InternalCodec<T> = Codec<T> & {
     encode: (writer: Writer, value: T) => void;
     decode: (reader: Reader) => T;
-    _size: number;
 };
 
 type SendStats = {
@@ -34,6 +33,44 @@ type ReceiveStats<T> = T extends undefined
         Disconnect: () => void;
     };
 
+export type QueryDefinition<Req, Res> = {
+    _requestCodec: Codec<Req> | undefined;
+    _responseCodec: Codec<Res> | undefined;
+};
+
+export type QueryRequest<Res> = Promise<Res> & {
+    stats: (fn?: (stats: PacketStats | undefined) => void) => QueryRequest<Res>;
+};
+
+export type Query<Req, Res> = Req extends undefined
+    ? {
+        request: (target?: SendTarget) => QueryRequest<Res>;
+        response: (fn: (player?: Player) => Res) => {
+            stats: (
+                fn?: (stats: PacketStats | undefined, player?: Player) => void,
+            ) => RBXScriptConnection;
+            Disconnect: () => void;
+        };
+    }
+    : {
+        request: (data: Req, target?: SendTarget) => QueryRequest<Res>;
+        response: (fn: (data: Req, player?: Player) => Res) => {
+            stats: (
+                fn?: (data: Req, stats: PacketStats | undefined, player?: Player) => void,
+            ) => RBXScriptConnection;
+            Disconnect: () => void;
+        };
+    };
+
+export type PacketDefinition<T> = {
+    _codec: Codec<T> | undefined;
+    _unreliable: boolean;
+};
+
+export type PacketOptions = {
+    unreliable: boolean;
+};
+
 export type Packet<T> = T extends undefined
     ? {
         send: (target?: Player | Player[] | ["Except", Player | Player[]]) => SendStats;
@@ -49,15 +86,6 @@ export type Packet<T> = T extends undefined
         once: (fn: (data: T, player?: Player) => void) => ReceiveStats<T>;
     };
 export type SendTarget = Player | Player[] | ["Except", Player | Player[]];
-
-export type PacketDefinition<T> = {
-    _codec: Codec<T> | undefined;
-    _unreliable: boolean;
-};
-
-export type PacketOptions = {
-    unreliable: boolean;
-};
 
 export namespace Channel {
     export type Scope = {
@@ -81,7 +109,15 @@ export type PacketStats = {
     lastSentAt: number;
 
     // Receive
-    bytesReceived: number;
+    receivedBytes: {
+        raw: number;
+        overhead: number;
+        total: number;
+
+        totalRaw: number;
+        totalOverhead: number;
+        totalWire: number;
+    };
     totalReceived: number;
     firstReceivedAt: number;
     lastReceivedAt: number;

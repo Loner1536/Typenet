@@ -6,6 +6,12 @@ export default class Reader {
         this.buf = buf;
     }
 
+    slice(start: number, length: number): buffer {
+        const out = buffer.create(length);
+        buffer.copy(out, 0, this.buf, start, length);
+        return out;
+    }
+
     reset(buf: buffer) {
         this.buf = buf;
         this.cursor = 0;

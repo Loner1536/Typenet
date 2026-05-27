@@ -17,6 +17,7 @@ import * as Inbound from "./channel/inbound";
 
 export { default as Channel } from "./definition/channel";
 export { default as Packet } from "./definition/packet";
+export { default as Query } from "./definition/query";
 
 export { default as t } from "./serial";
 

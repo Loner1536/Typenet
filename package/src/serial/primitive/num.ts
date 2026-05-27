@@ -15,11 +15,12 @@ function detectNumericType(num: number): NumericType {
         if (num <= 0xff) return "u8";
         if (num <= 0xffff) return "u16";
         if (num <= 0xffffffff) return "u32";
-    } else {
-        if (num >= -0x80) return "i8";
-        if (num >= -0x8000) return "i16";
-        if (num >= -0x80000000) return "i32";
+        return "f64";
     }
+
+    if (num >= -0x80) return "i8";
+    if (num >= -0x8000) return "i16";
+    if (num >= -0x80000000) return "i32";
 
     return "f64";
 }

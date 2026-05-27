@@ -1,7 +1,7 @@
 // Package
 import { RunService } from "@rbxts/services";
 
-// Codec
+// Serial
 import Writer from "../serial/writer";
 
 // Channel
@@ -32,11 +32,7 @@ export function startHeartbeat(
     });
 }
 
-export function startClientHeartbeat(
-    reliableChannel: Writer,
-    unreliableChannel: Writer,
-    onFlushed: () => void,
-) {
+export function startClientHeartbeat(reliableChannel: Writer, unreliableChannel: Writer) {
     const _reliable = reliable();
     const _unreliable = unreliable();
 
@@ -44,12 +40,10 @@ export function startClientHeartbeat(
         if (reliableChannel.cursor > 0) {
             _reliable.FireServer(reliableChannel.toBuffer());
             reliableChannel.reset();
-            onFlushed();
         }
         if (unreliableChannel.cursor > 0) {
             _unreliable.FireServer(unreliableChannel.toBuffer());
             unreliableChannel.reset();
-            onFlushed();
         }
     });
 }

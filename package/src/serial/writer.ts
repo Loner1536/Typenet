@@ -18,6 +18,12 @@ export default class Writer {
         this.buf = grown;
     }
 
+    slice(start: number, length: number): buffer {
+        const out = buffer.create(length);
+        buffer.copy(out, 0, this.buf, start, length);
+        return out;
+    }
+
     reset() {
         this.cursor = 0;
     }

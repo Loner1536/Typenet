@@ -12,12 +12,19 @@ Typenet.set({
 Typenet.start();
 Lync.start();
 
-const value = 255;
+const value = 0xffffff;
 
-Network.Typenet.u8.send(value).stats();
-Network.Typenet.u8.on(() => { }).stats();
+// Network.Typenet.u32.send(value);
+// Network.Typenet.u32.on(() => { }).stats();
 
-Network.Lync.u8.send(value);
-Network.Lync.u8.on((data) => {
-    print("Lync", data);
-});
+Network.Typenet.query
+    .request()
+    .stats()
+    .then((data) => {
+        print(`Query Client value: ${data}`);
+    });
+
+// Network.Lync.u32.send(value);
+// Network.Lync.u32.on((data) => {
+//     print("Lync", data);
+// });

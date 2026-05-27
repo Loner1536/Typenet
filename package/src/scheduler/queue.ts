@@ -1,8 +1,5 @@
-// Codec
+// Serial
 import Writer from "../serial/writer";
-
-// Definitions
-import { getStats } from "../definition/registry";
 
 type Encoder = (writer: Writer) => void;
 
@@ -11,28 +8,24 @@ export type PendingEntry = {
     name: string;
     encode: Encoder;
     unreliable: boolean;
-    onFlush?: (stats: ReturnType<typeof getStats>) => void;
 };
+
 export type PendingBroadcast = {
     name: string;
     encode: Encoder;
     unreliable: boolean;
-    onFlush?: (stats: ReturnType<typeof getStats>) => void;
 };
 
 export const pendingQueue: PendingEntry[] = [];
 export const pendingBroadcasts: PendingBroadcast[] = [];
 
-export function flushPending(
-    player: Player,
-    getChannel: (player: Player, unreliable: boolean) => Writer,
-) {
+export function flushPending(player: Player, entries: PendingEntry[]): PendingEntry[] {
     const remaining: PendingEntry[] = [];
+    const flushed: PendingEntry[] = [];
 
-    for (const entry of pendingQueue) {
+    for (const entry of entries) {
         if (entry.player === player) {
-            entry.encode(getChannel(player, entry.unreliable));
-            if (entry.onFlush) entry.onFlush(getStats(entry.name));
+            flushed.push(entry);
         } else {
             remaining.push(entry);
         }
@@ -41,8 +34,5 @@ export function flushPending(
     pendingQueue.clear();
     for (const entry of remaining) pendingQueue.push(entry);
 
-    for (const entry of pendingBroadcasts) {
-        entry.encode(getChannel(player, entry.unreliable));
-        if (entry.onFlush) entry.onFlush(getStats(entry.name));
-    }
+    return flushed;
 }

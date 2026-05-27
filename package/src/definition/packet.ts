@@ -5,12 +5,13 @@ import * as Types from "../types";
 import { send as sendPacket } from "../channel/outbound";
 import { createListener } from "../channel/inbound";
 
-// Definitions
-import Registry, { getStats } from "../definition/registry";
+// Definition
+import { register } from "../definition/registry";
 
 // Debug
 import Logger from "../debug/logger";
-import Stats from "../debug/stats";
+import Stats, { getStats } from "../debug/stats";
+import { isStats } from "../debug/config";
 
 const FROM = "Packet";
 
@@ -25,7 +26,9 @@ export function definePacket<T>(
     codecOrOptions?: Types.Codec<T> | Types.PacketOptions,
     options?: Types.PacketOptions,
 ): Types.Packet<T | undefined> {
-    const id = Registry.register(name);
+    const id = register(name);
+
+    if (isStats()) new Stats(name);
 
     let codec: Types.InternalCodec<T> | undefined;
     let opts: Types.PacketOptions | undefined;
@@ -46,16 +49,10 @@ export function definePacket<T>(
             | ((data: T, stats: Types.PacketStats | undefined, player?: Player) => void)
             | undefined;
 
-        const tracker = getStats(name);
-        const connection = createListener(
-            id,
-            codec,
-            (data, player) => {
-                fn(data, player);
-                if (statsFn) statsFn(data, tracker?.snapshot(), player);
-            },
-            tracker,
-        );
+        const connection = createListener(id, name, codec, (data, player) => {
+            fn(data, player);
+            if (statsFn) statsFn(data, getStats(name)?.snapshot(), player);
+        });
 
         return {
             stats: (sf?: typeof statsFn): RBXScriptConnection => {
@@ -88,31 +85,21 @@ export function definePacket<T>(
     };
 
     const send = (dataOrTarget?: T | Types.SendTarget, target?: Types.SendTarget) => {
-        const tracker = getStats(name);
-
-        let onFlush: ((state: Stats | undefined) => void) | undefined;
-
-        sendPacket(id, name, codec, unreliable, tracker, dataOrTarget, target, (stats) => {
-            task.defer(() => {
-                if (onFlush) onFlush(stats);
-            });
-        });
+        sendPacket(id, name, codec, unreliable, dataOrTarget, target);
 
         return {
             stats: (fn?: (stats: Types.PacketStats | undefined) => void) => {
-                onFlush = (s) => {
-                    const snap = s?.snapshot();
-                    if (fn) {
-                        fn(snap);
-                    } else {
-                        print(`[TYPENET] ${name} sent:`, snap);
-                    }
-                };
+                const snap = getStats(name)?.snapshot();
+                if (fn) {
+                    fn(snap);
+                } else {
+                    print(`[TYPENET] ${name} sent:`, snap);
+                }
             },
         };
     };
 
-    return { send, on, once } as unknown as Types.Packet<T>;
+    return { send, on, once } as Types.Packet<T>;
 }
 
 export default function Packet(options?: Types.PacketOptions): Types.PacketDefinition<undefined>;
