@@ -1,53 +1,54 @@
-// Package
-import { RunService } from "@rbxts/services";
+// Internal
+import * as Type from "./type";
 
-// Root
-import * as Types from "./types";
+// Security
+import Report from "./security/report";
 
-// Definitions
-import definePacket from "./definition/packet";
+// Transport
+import Lifecycle from "./transport/lifecycle";
+import Handshake from "./transport/handshake";
+import Registry from "./transport/registry";
+import Outbound from "./transport/outbound";
+import Inbound from "./transport/inbound";
+import Bridge from "./transport/bridge";
+import Engine from "./transport/engine";
 
-// Debug
-import { configure } from "./debug/config";
-import Logger from "./debug/logger";
+// API
+import definePacket from "./api/packet";
 
-// Channel
-import * as Outbound from "./channel/outbound";
-import * as Inbound from "./channel/inbound";
+export { default as t } from "./codec";
+export * as Type from "./type";
 
-export { default as Channel } from "./definition/channel";
-export { default as Packet } from "./definition/packet";
-export { default as Query } from "./definition/query";
+let started = false;
 
-export { default as t } from "./serial";
+function start(opts?: Type.StartOptions) {
+    if (started) {
+        Report.log("warn", "TYPENET_MULTIPLE_STARTS");
+        return;
+    }
 
-const FROM = "ROOT";
-const IS_SERVER = RunService.IsServer();
-const started = {
-    server: false,
-    client: false,
-};
+    if (opts) {
+        Report.setDebug(opts.debug ?? false);
+    }
+
+    Registry.finalize();
+    Lifecycle.start();
+
+    Bridge.start();
+    Bridge.onReceive(Inbound.handle);
+
+    Outbound.start();
+
+    Handshake.start();
+    Engine.start();
+}
+
+declare namespace Typenet {
+    export type Codec<T> = Type.Codec.External<T>;
+}
 
 const Typenet = {
-    set: (options: Types.Options) => {
-        if (IS_SERVER ? started.server : started.client) {
-            Logger.warn(FROM, "Cannot set after starting systems");
-            return;
-        }
-
-        configure(options);
-    },
-    start: () => {
-        if (IS_SERVER) {
-            Inbound.start();
-            Outbound.startServer();
-            started.server = true;
-        } else {
-            Inbound.start();
-            Outbound.startClient();
-            started.client = true;
-        }
-    },
+    start,
 
     definePacket,
 };

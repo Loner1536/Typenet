@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 # dump.sh — compact source dump for AI context
-# Usage: ./dump.sh [dir] [ext_filter]
-# Examples:
-#   ./dump.sh src
-#   ./dump.sh src ts
-#   ./dump.sh . "ts|js|json"
 
 DIR="${1:-.}"
 EXT="${2:-}"
@@ -14,28 +9,26 @@ if [ ! -d "$DIR" ]; then
     exit 1
 fi
 
-# Build find command
 if [ -n "$EXT" ]; then
-    FILES=$(find "$DIR" -type f | grep -E "\.(${EXT})$" | sort)
+    FILES=$(find "$DIR" -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/out/*' | grep -E "\.(${EXT})$" | sort)
 else
-    FILES=$(find "$DIR" -type f | sort)
+    FILES=$(find "$DIR" -type f -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/out/*' | sort)
 fi
 
-# Count for header
 TOTAL=$(echo "$FILES" | grep -c .)
+TOTAL_LINES=0
 
 echo "# src:$DIR n:$TOTAL"
 echo ""
 
 echo "$FILES" | while IFS= read -r file; do
-    # Strip leading ./ for cleanliness
     CLEAN="${file#./}"
-    # Get extension for code fence lang hint
     EXT_HINT="${CLEAN##*.}"
-    echo "## $CLEAN"
+    LINES=$(wc -l <"$file")
+    echo "## $CLEAN ($LINES lines)"
     echo "\`\`\`${EXT_HINT}"
-    # Strip blank lines and trailing whitespace to reduce tokens
-    sed 's/[[:space:]]*$//' "$file" | cat -s
+    # Preserve content exactly, only strip trailing whitespace
+    sed 's/[[:space:]]*$//' "$file"
     echo "\`\`\`"
     echo ""
 done

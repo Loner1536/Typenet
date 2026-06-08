@@ -1,0 +1,3452 @@
+# src:./package/src n:50
+
+## package/src/api/packet.ts (67 lines)
+```ts
+//!optimize 2
+//!native
+
+// Transport
+import Outbound from "@transport/outbound";
+import Registry from "@transport/registry";
+
+// Internal
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+export default function definePacket(
+    name: string,
+    options?: Type.Packet.Options,
+): Type.Packet.Definition<undefined>;
+export default function definePacket<T>(
+    name: string,
+    codec: Type.Codec.External<T>,
+    options?: Type.Packet.Options,
+): Type.Packet.Definition<T>;
+export default function definePacket<T>(
+    name: string,
+    codecOrOptions?: Type.Codec.External<T> | Type.Packet.Options,
+    options?: Type.Packet.Options,
+) {
+    let codec: Type.Codec.Internal<T> | undefined;
+    let opts: Type.Packet.Options | undefined;
+
+    if (codecOrOptions !== undefined && "write" in (codecOrOptions as object)) {
+        codec = codecOrOptions as Type.Codec.Internal<T>;
+        opts = options;
+    } else {
+        codec = undefined;
+        opts = codecOrOptions as Type.Packet.Options | undefined;
+    }
+
+    const unreliable = opts?.unreliable ?? false;
+
+    const def = Registry.register(
+        name,
+        codec as Type.Codec.Internal<unknown> | undefined,
+        unreliable,
+    );
+
+    Report.log("debug", "PACKET_DEFINED", { name, unreliable });
+
+    function send(dataOrTarget?: T | Type.Target, target?: Type.Target) {
+        if (def.id === 0) {
+            Report.log("warn", "PACKET_SEND_BEFORE_START", { name });
+            return;
+        }
+
+        const resolvedData = codec !== undefined ? (dataOrTarget as T) : undefined;
+        const resolvedTarget =
+            codec !== undefined ? target : (dataOrTarget as Type.Target | undefined);
+
+        Outbound.send(def.id, codec, resolvedData, resolvedTarget, unreliable, opts?.xor);
+    }
+
+    function on(handler: (player: Player, data: T) => void) {
+        Registry.setHandler(name, handler as (player: Player, data: unknown) => void);
+    }
+
+    return { send, on } as Type.Packet.Definition<T>;
+}
+```
+
+## package/src/binary/cursor.ts (181 lines)
+```ts
+//!optimize 2
+//!native
+
+// Security
+import Report from "@security/report";
+
+// Internal
+import { IS_SERVER } from "@environment";
+
+export class Cursor {
+    private player: Player | undefined;
+
+    public buf: buffer;
+    public offset = 0;
+
+    constructor(buf: buffer, player?: Player) {
+        this.buf = buf;
+        this.player = player;
+    }
+
+    public reset(buf: buffer) {
+        this.buf = buf;
+        this.offset = 0;
+    }
+
+    public remaining(): number {
+        return buffer.len(this.buf) - this.offset;
+    }
+
+    public ensureRemaining(bytes: number) {
+        if (this.offset + bytes > buffer.len(this.buf)) {
+            if (IS_SERVER && this.player !== undefined) {
+                Report.log("kick", "CURSOR_UNDERFLOW", {
+                    player: this.player,
+                    offset: this.offset,
+                    needed: bytes,
+                    size: buffer.len(this.buf),
+                });
+            } else {
+                Report.log("warn", "CURSOR_UNDERFLOW", {
+                    offset: this.offset,
+                    needed: bytes,
+                    size: buffer.len(this.buf),
+                });
+            }
+        }
+    }
+
+    public varint(): number {
+        let result = 0;
+        let shift = 0;
+        while (true) {
+            const byte = this.u8();
+            result = bit32.bor(result, bit32.lshift(bit32.band(byte, 0x7f), shift));
+            if (bit32.band(byte, 0x80) === 0) return result;
+            shift += 7;
+            if (shift > 28) {
+                Report.log("warn", "VARINT_TOO_LONG");
+                return result;
+            }
+        }
+    }
+
+    public u8(): number {
+        this.ensureRemaining(1);
+        const v = buffer.readu8(this.buf, this.offset);
+        this.offset += 1;
+        return v;
+    }
+
+    public u16(): number {
+        this.ensureRemaining(2);
+        const v = buffer.readu16(this.buf, this.offset);
+        this.offset += 2;
+        return v;
+    }
+
+    public u24(): number {
+        this.ensureRemaining(3);
+        const v = bit32.bor(
+            buffer.readu8(this.buf, this.offset),
+            bit32.lshift(buffer.readu8(this.buf, this.offset + 1), 8),
+            bit32.lshift(buffer.readu8(this.buf, this.offset + 2), 16),
+        );
+        this.offset += 3;
+        return v;
+    }
+
+    public u32(): number {
+        this.ensureRemaining(4);
+        const v = buffer.readu32(this.buf, this.offset);
+        this.offset += 4;
+        return v;
+    }
+
+    public i8(): number {
+        this.ensureRemaining(1);
+        const v = buffer.readi8(this.buf, this.offset);
+        this.offset += 1;
+        return v;
+    }
+
+    public i16(): number {
+        this.ensureRemaining(2);
+        const v = buffer.readi16(this.buf, this.offset);
+        this.offset += 2;
+        return v;
+    }
+
+    public i32(): number {
+        this.ensureRemaining(4);
+        const v = buffer.readi32(this.buf, this.offset);
+        this.offset += 4;
+        return v;
+    }
+
+    public f16(): number {
+        this.ensureRemaining(2);
+        const bits = buffer.readu16(this.buf, this.offset);
+        this.offset += 2;
+
+        const sign = bit32.rshift(bits, 15) === 1 ? -1 : 1;
+        const exp = bit32.band(bit32.rshift(bits, 10), 0x1f);
+        const mantissa = bit32.band(bits, 0x3ff);
+
+        if (exp === 0x1f) {
+            return mantissa === 0 ? sign * math.huge : 0 / 0;
+        }
+
+        if (exp === 0) {
+            return sign * math.pow(2, -14) * (mantissa / 1024);
+        }
+
+        return sign * math.pow(2, exp - 15) * (1 + mantissa / 1024);
+    }
+    public f32(): number {
+        this.ensureRemaining(4);
+        const v = buffer.readf32(this.buf, this.offset);
+        this.offset += 4;
+        return v;
+    }
+
+    public f64(): number {
+        this.ensureRemaining(8);
+        const v = buffer.readf64(this.buf, this.offset);
+        this.offset += 8;
+        return v;
+    }
+
+    public bool(): boolean {
+        return this.u8() !== 0;
+    }
+
+    public string(len: number): string {
+        this.ensureRemaining(len);
+        const v = buffer.readstring(this.buf, this.offset, len);
+        this.offset += len;
+        return v;
+    }
+
+    public copyRange(s: number, e: number): buffer {
+        const size = e - s;
+        const out = buffer.create(size);
+        buffer.copy(out, 0, this.buf, s, size);
+        return out;
+    }
+
+    public bytes(length: number): buffer {
+        this.ensureRemaining(length);
+        const out = buffer.create(length);
+        buffer.copy(out, 0, this.buf, this.offset, length);
+        this.offset += length;
+        return out;
+    }
+
+    public getPlayer(): Player | undefined {
+        return this.player;
+    }
+}
+
+export default Cursor;
+```
+
+## package/src/binary/writer.ts (175 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import Constant from "@constant";
+
+// Security
+import Report from "@security/report";
+
+export class Writer {
+    public buf: buffer;
+    public offset = 0;
+
+    constructor() {
+        this.buf = buffer.create(Constant.WRITER_BYTE_SIZE);
+    }
+
+    public reset() {
+        this.offset = 0;
+    }
+
+    public ensureSpace(bytes: number) {
+        if (this.offset + bytes > buffer.len(this.buf)) {
+            Report.log("fatal", "WRITER_OVERFLOW", {
+                offset: this.offset,
+                needed: bytes,
+                size: buffer.len(this.buf),
+            });
+        }
+    }
+
+    public used(): number {
+        return this.offset;
+    }
+
+    public varint(value: number) {
+        while (value >= 0x80) {
+            this.u8(bit32.bor(bit32.band(value, 0x7f), 0x80));
+            value = math.floor(value / 128);
+        }
+        this.u8(value);
+    }
+
+    public copyOut(s: number, e: number): buffer {
+        const size = e - s;
+        const out = buffer.create(size);
+        buffer.copy(out, 0, this.buf, s, size);
+
+        return out;
+    }
+
+    public u8(value: number) {
+        this.ensureSpace(1);
+        buffer.writeu8(this.buf, this.offset, value);
+        this.offset += 1;
+    }
+
+    public u16(value: number) {
+        this.ensureSpace(2);
+        buffer.writeu16(this.buf, this.offset, value);
+        this.offset += 2;
+    }
+
+    public u24(value: number) {
+        this.ensureSpace(3);
+        buffer.writeu8(this.buf, this.offset, bit32.band(value, 0xff));
+        buffer.writeu8(this.buf, this.offset + 1, bit32.band(bit32.rshift(value, 8), 0xff));
+        buffer.writeu8(this.buf, this.offset + 2, bit32.band(bit32.rshift(value, 16), 0xff));
+        this.offset += 3;
+    }
+
+    public u32(value: number) {
+        this.ensureSpace(4);
+        buffer.writeu32(this.buf, this.offset, value);
+        this.offset += 4;
+    }
+
+    public i8(value: number) {
+        this.ensureSpace(1);
+        buffer.writei8(this.buf, this.offset, value);
+        this.offset += 1;
+    }
+
+    public i16(value: number) {
+        this.ensureSpace(2);
+        buffer.writei16(this.buf, this.offset, value);
+        this.offset += 2;
+    }
+
+    public i32(value: number) {
+        this.ensureSpace(4);
+        buffer.writei32(this.buf, this.offset, value);
+        this.offset += 4;
+    }
+
+    public f16(value: number) {
+        this.ensureSpace(2);
+
+        if (value !== value) {
+            buffer.writeu16(this.buf, this.offset, 0x7e00);
+            this.offset += 2;
+            return;
+        }
+
+        const sign = value < 0 ? 1 : 0;
+        value = math.abs(value);
+
+        if (value === math.huge) {
+            buffer.writeu16(this.buf, this.offset, sign * 0x8000 + 0x7c00);
+            this.offset += 2;
+            return;
+        }
+
+        if (value === 0) {
+            buffer.writeu16(this.buf, this.offset, 0);
+            this.offset += 2;
+            return;
+        }
+
+        const f32buf = buffer.create(4);
+        buffer.writef32(f32buf, 0, value);
+        const bits = buffer.readu32(f32buf, 0);
+
+        const exp = bit32.band(bit32.rshift(bits, 23), 0xff) - 127 + 15;
+        const mantissa = bit32.band(bits, 0x7fffff);
+
+        if (exp >= 31) {
+            buffer.writeu16(this.buf, this.offset, bit32.bor(bit32.lshift(sign, 15), 0x7c00));
+        } else if (exp <= 0) {
+            buffer.writeu16(this.buf, this.offset, 0);
+        } else {
+            buffer.writeu16(
+                this.buf,
+                this.offset,
+                bit32.bor(
+                    bit32.lshift(sign, 15),
+                    bit32.lshift(exp, 10),
+                    bit32.rshift(mantissa, 13),
+                ),
+            );
+        }
+
+        this.offset += 2;
+    }
+
+    public f32(value: number) {
+        this.ensureSpace(4);
+        buffer.writef32(this.buf, this.offset, value);
+        this.offset += 4;
+    }
+
+    public f64(value: number) {
+        this.ensureSpace(8);
+        buffer.writef64(this.buf, this.offset, value);
+        this.offset += 8;
+    }
+
+    public bool(value: boolean) {
+        this.u8(value ? 1 : 0);
+    }
+
+    public string(value: string, len: number) {
+        this.ensureSpace(len);
+        buffer.writestring(this.buf, this.offset, value);
+        this.offset += len;
+    }
+
+    public bytes(src: buffer, srcOffset: number, length: number) {
+        this.ensureSpace(length);
+        buffer.copy(this.buf, this.offset, src, srcOffset, length);
+        this.offset += length;
+    }
+}
+
+export default Writer;
+```
+
+## package/src/codec/composite/array.ts (90 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+// Utility
+import { packBoolArray, unpackBoolArray } from "@utility/bool-pack";
+
+function array<T>(codec: Type.Codec.External<T>) {
+    const internalCodec = codec as Type.Codec.Internal<T>;
+    const isBool = typeOf(internalCodec._default) === "boolean";
+    const elemSize = internalCodec._size;
+
+    const directWrite = internalCodec._directWrite;
+    const directRead = internalCodec._directRead;
+    const isDirect =
+        elemSize !== undefined && directWrite !== undefined && directRead !== undefined;
+
+    return {
+        write: (writer, value) => {
+            const len = value.size();
+            if (len > Constant.MAX_ARRAY_LENGTH) {
+                Report.log("warn", "ARRAY_TOO_LARGE", {
+                    length: len,
+                    max: Constant.MAX_ARRAY_LENGTH,
+                });
+            }
+            writer.varint(len);
+
+            if (isBool) {
+                packBoolArray(writer, value as boolean[], len);
+            } else if (isDirect) {
+                const payloadBytes = len * elemSize;
+                writer.ensureSpace(payloadBytes);
+
+                const buf = writer.buf;
+                let off = writer.offset;
+                for (let i = 0; i < len; i++) {
+                    directWrite(buf, off, value[i]);
+                    off += elemSize;
+                }
+                writer.offset += payloadBytes;
+            } else {
+                for (let i = 0; i < len; i++) {
+                    internalCodec.write(writer, value[i]);
+                }
+            }
+        },
+        read: (cursor) => {
+            const len = cursor.varint();
+            if (len > Constant.MAX_ARRAY_LENGTH) {
+                Report.log("warn", "ARRAY_TOO_LARGE", { len, max: Constant.MAX_ARRAY_LENGTH });
+            }
+
+            if (isBool) {
+                return unpackBoolArray(cursor, len) as unknown as T[];
+            }
+
+            if (isDirect) {
+                const payloadBytes = len * elemSize;
+                cursor.ensureRemaining(payloadBytes);
+
+                const result = new Array<T>(len);
+                const buf = cursor.buf;
+                let off = cursor.offset;
+
+                for (let i = 0; i < len; i++) {
+                    result[i] = directRead(buf, off) as T;
+                    off += elemSize;
+                }
+                cursor.offset += payloadBytes;
+                return result;
+            }
+
+            const result = new Array<T>(len);
+            for (let i = 0; i < len; i++) {
+                result[i] = internalCodec.read(cursor);
+            }
+            return result;
+        },
+        _default: [] as T[],
+    } as Type.Codec.Internal<T[]> as Type.Codec.External<T[]>;
+}
+
+export default array;
+```
+
+## package/src/codec/composite/delta/array.ts (155 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import { IS_SERVER } from "@environment";
+import * as Type from "@type";
+
+// Transport
+import Snapshot from "@transport/snapshot";
+
+// Binary
+import Writer from "@binary/writer";
+
+// Security
+import Report from "@security/report";
+
+const FLAG_UNCHANGED = 0;
+const FLAG_FULL = 1;
+const FLAG_DIFF = 2;
+
+interface CachedElement<T> {
+    value: T;
+    bytes: buffer;
+}
+
+function buffersEqual(a: buffer, b: buffer): boolean {
+    const len = buffer.len(a);
+    if (len !== buffer.len(b)) return false;
+    for (let i = 0; i < len; i++) {
+        if (buffer.readu8(a, i) !== buffer.readu8(b, i)) return false;
+    }
+    return true;
+}
+
+function serializeElement<T>(
+    scratch: Type.Writer,
+    codec: Type.Codec.Internal<T>,
+    value: T,
+): buffer {
+    scratch.reset();
+    codec.write(scratch, value);
+    return scratch.copyOut(0, scratch.used());
+}
+
+function deltaArray<T>(codec: Type.Codec.External<T>) {
+    const id = Snapshot.allocId();
+    const internalCodec = codec as unknown as Type.Codec.Internal<T>;
+    const scratch = new Writer();
+
+    return {
+        write: (writer, value) => {
+            const player = IS_SERVER ? Snapshot.getCurrentPlayer() : undefined;
+            const cached = Snapshot.getCache(id, player) as CachedElement<T>[] | undefined;
+            const len = value.size();
+
+            if (cached === undefined || len !== cached.size()) {
+                writer.u8(FLAG_FULL);
+                writer.varint(len);
+
+                const newCache: CachedElement<T>[] = [];
+                for (let i = 0; i < len; i++) {
+                    const bytes = serializeElement(scratch, internalCodec, value[i]);
+                    newCache[i] = { value: value[i], bytes };
+                    writer.bytes(bytes, 0, buffer.len(bytes));
+                }
+                Snapshot.setCache(id, newCache, player);
+                return;
+            }
+
+            const serialized: buffer[] = [];
+            const dirty: number[] = [];
+            for (let i = 0; i < len; i++) {
+                const bytes = serializeElement(scratch, internalCodec, value[i]);
+                serialized[i] = bytes;
+                if (!buffersEqual(bytes, cached[i].bytes)) dirty.push(i);
+            }
+
+            if (dirty.size() === 0) {
+                writer.u8(FLAG_UNCHANGED);
+                return;
+            }
+
+            writer.u8(FLAG_DIFF);
+            writer.varint(dirty.size());
+            const dirtyLen = dirty.size();
+            for (let d = 0; d < dirtyLen; d++) {
+                const i = dirty[d];
+                writer.varint(i);
+                writer.bytes(serialized[i], 0, buffer.len(serialized[i]));
+                cached[i] = { value: value[i], bytes: serialized[i] };
+            }
+        },
+
+        read: (cursor) => {
+            const player = cursor.getPlayer();
+            const flag = cursor.u8();
+
+            if (flag === FLAG_UNCHANGED) {
+                const cached = Snapshot.getCache(id, player) as CachedElement<T>[] | undefined;
+                if (cached === undefined) {
+                    Report.log("warn", "DELTA_ARRAY_UNCHANGED_NO_CACHE", { id });
+                    return [];
+                }
+                const result: T[] = [];
+                const clen = cached.size();
+                for (let i = 0; i < clen; i++) result[i] = cached[i].value;
+                return result;
+            }
+
+            if (flag === FLAG_FULL) {
+                const len = cursor.varint();
+                const newCache: CachedElement<T>[] = [];
+                const result: T[] = [];
+
+                for (let i = 0; i < len; i++) {
+                    const start = cursor.offset;
+                    const value = internalCodec.read(cursor);
+                    const bytes = cursor.copyRange(start, cursor.offset);
+                    newCache[i] = { value, bytes };
+                    result[i] = value;
+                }
+                Snapshot.setCache(id, newCache, player);
+                return result;
+            }
+
+            const cachedRaw = Snapshot.getCache(id, player) as CachedElement<T>[] | undefined;
+            if (cachedRaw === undefined) {
+				Report.log("warn", "DELTA_ARRAY_DIFF_NO_CACHE", { id });
+				return [];
+			}
+			const cached = cachedRaw as CachedElement<T>[];
+
+			const count = cursor.varint();
+			for (let i = 0; i < count; i++) {
+				const index = cursor.varint();
+				const start = cursor.offset;
+				const value = internalCodec.read(cursor);
+				const bytes = cursor.copyRange(start, cursor.offset);
+				cached[index] = { value, bytes };
+			}
+
+			Snapshot.setCache(id, cached, player);
+
+			const result: T[] = [];
+			const clen = cached.size();
+			for (let i = 0; i < clen; i++) result[i] = cached[i].value;
+			return result;
+		},
+
+		_delta: true,
+		_default: [] as T[],
+	} as Type.Codec.Internal<T[]> as Type.Codec.External<T[]>;
+}
+
+export default deltaArray;
+```
+
+## package/src/codec/composite/delta/struct.ts (214 lines)
+```ts
+//!optimize 2
+//!native
+
+// Package
+import Object from "@rbxts/object-utils";
+
+// Internal
+import { IS_SERVER } from "@environment";
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Transport
+import Snapshot from "@transport/snapshot";
+
+// Security
+import Report from "@security/report";
+
+// Utility
+import { splitBoolKeys, getBitmapBytes, packBools, unpackBools } from "@utility/bool-pack";
+
+const FLAG_UNCHANGED = 0;
+const FLAG_FULL = 1;
+const FLAG_MULTI = 2;
+const SINGLE_FIELD_OFFSET = 3;
+
+function deltaStruct<T extends Record<string, Type.Codec.External<unknown>>>(fields: T) {
+    const id = Snapshot.allocId();
+
+    const internalFields = fields as unknown as Record<string, Type.Codec.Internal<unknown>>;
+
+    const allKeys = (Object.keys(internalFields) as string[]).sort();
+    const { dataKeys, boolKeys } = splitBoolKeys(internalFields, allKeys);
+
+    const fieldCount = allKeys.size();
+    const bitmapBytes = getBitmapBytes(boolKeys.size());
+    const deltaBitmapBytes = fieldCount <= 8 ? 1 : fieldCount <= 16 ? 2 : 4;
+
+    function writeFull(writer: Type.Writer, value: Record<string, unknown>) {
+        dataKeys.forEach((key) => internalFields[key].write(writer, value[key]));
+        if (boolKeys.size() > 0) packBools(writer, value, boolKeys, bitmapBytes);
+    }
+
+    function readFull(cursor: Type.Cursor): Record<string, unknown> {
+        const result: Record<string, unknown> = {};
+
+        dataKeys.forEach((key) => {
+            result[key] = internalFields[key].read(cursor);
+        });
+        if (boolKeys.size() > 0) unpackBools(cursor, result, boolKeys, bitmapBytes);
+
+        return result;
+    }
+
+    function buildDefault(): Record<string, unknown> {
+        const result: Record<string, unknown> = {};
+
+        allKeys.forEach((key) => {
+            result[key] = internalFields[key]._default;
+        });
+
+        return result;
+    }
+
+    function copyCache(cached: Record<string, unknown>): Record<string, unknown> {
+        const result: Record<string, unknown> = {};
+
+        allKeys.forEach((key) => {
+            result[key] = cached[key];
+        });
+
+        return result;
+    }
+
+    function readDeltaBitmap(cursor: Type.Cursor): number {
+        if (deltaBitmapBytes === 1) return cursor.u8();
+        if (deltaBitmapBytes === 2) return cursor.u16();
+
+        return cursor.u32();
+    }
+
+    function writeDeltaBitmap(writer: Type.Writer, bitmap: number) {
+        if (deltaBitmapBytes === 1) writer.u8(bitmap);
+        else if (deltaBitmapBytes === 2) writer.u16(bitmap);
+        else writer.u32(bitmap);
+    }
+
+    function readField(cursor: Type.Cursor, cached: Record<string, unknown>, key: string) {
+        if (boolKeys.includes(key)) {
+            unpackBools(cursor, cached, [key], 1);
+        } else {
+            cached[key] = internalFields[key].read(cursor);
+        }
+    }
+
+    function writeField(writer: Type.Writer, val: Record<string, unknown>, key: string) {
+        if (boolKeys.includes(key)) {
+            packBools(writer, val, [key], 1);
+        } else {
+            internalFields[key].write(writer, val[key]);
+        }
+    }
+
+    return {
+        write: (writer, value) => {
+            const player = IS_SERVER ? Snapshot.getCurrentPlayer() : undefined;
+            const cached = Snapshot.getCache(id, player) as Record<string, unknown> | undefined;
+            const val = value as Record<string, unknown>;
+
+            if (cached === undefined) {
+                writer.u8(FLAG_FULL);
+                writeFull(writer, val);
+
+                const cache: Record<string, unknown> = {};
+                allKeys.forEach((key) => {
+                    cache[key] = val[key];
+                });
+                Snapshot.setCache(id, cache, player);
+
+                return;
+            }
+
+            const dirtyIndices: number[] = [];
+            allKeys.forEach((key, i) => {
+                if (cached[key] !== val[key]) dirtyIndices.push(i);
+            });
+
+            if (dirtyIndices.size() === 0) {
+                writer.u8(FLAG_UNCHANGED);
+                return;
+            }
+
+            if (dirtyIndices.size() === 1) {
+                const i = dirtyIndices[0];
+                const key = allKeys[i];
+                writer.u8(SINGLE_FIELD_OFFSET + i);
+                writeField(writer, val, key);
+                cached[key] = val[key];
+                return;
+            }
+
+            writer.u8(FLAG_MULTI);
+
+            let bitmap = 0;
+            dirtyIndices.forEach((i) => {
+                bitmap = bit32.bor(bitmap, bit32.lshift(1, i));
+            });
+
+            writeDeltaBitmap(writer, bitmap);
+
+            dirtyIndices.forEach((i) => {
+                const key = allKeys[i];
+                writeField(writer, val, key);
+                cached[key] = val[key];
+            });
+        },
+
+        read: (cursor) => {
+            const player = cursor.getPlayer();
+            const flag = cursor.u8();
+
+            if (flag === FLAG_UNCHANGED) {
+                const cached = Snapshot.getCache(id, player) as Record<string, unknown> | undefined;
+                if (cached === undefined) {
+                    Report.log("warn", "DELTA_STRUCT_UNCHANGED_NO_CACHE", { id });
+                    return buildDefault();
+                }
+                return copyCache(cached) as Type.Codec.InferSchema<T>;
+            }
+
+            if (flag === FLAG_FULL) {
+                const result = readFull(cursor);
+                Snapshot.setCache(id, result, player);
+                return copyCache(result) as Type.Codec.InferSchema<T>;
+            }
+
+            if (flag === FLAG_MULTI) {
+                const cached = Snapshot.getCache(id, player) as Record<string, unknown> | undefined;
+                if (cached === undefined) {
+                    Report.log("warn", "DELTA_STRUCT_MULTI_NO_CACHE", { id });
+                    return buildDefault();
+                }
+                const bitmap = readDeltaBitmap(cursor);
+                allKeys.forEach((key, i) => {
+                    if (bit32.band(bitmap, bit32.lshift(1, i)) !== 0) {
+                        readField(cursor, cached, key);
+                    }
+                });
+                return copyCache(cached) as Type.Codec.InferSchema<T>;
+            }
+
+            const fieldIndex = flag - SINGLE_FIELD_OFFSET;
+            if (fieldIndex >= fieldCount) {
+                Report.log("warn", "DELTA_STRUCT_INVALID_FLAG", { flag, fieldCount });
+                return buildDefault();
+            }
+
+            const cached = Snapshot.getCache(id, player) as Record<string, unknown> | undefined;
+            if (cached === undefined) {
+                Report.log("warn", "DELTA_STRUCT_SINGLE_NO_CACHE", { id });
+                return buildDefault();
+            }
+
+            readField(cursor, cached, allKeys[fieldIndex]);
+            return copyCache(cached) as Type.Codec.InferSchema<T>;
+        },
+        _default: buildDefault() as Type.Codec.InferSchema<T>,
+
+        _delta: true,
+    } as Type.Codec.Internal<Type.Codec.InferSchema<T>> as Type.Codec.External<
+        Type.Codec.InferSchema<T>
+    >;
+}
+
+export default deltaStruct;
+```
+
+## package/src/codec/composite/index.ts (27 lines)
+```ts
+// Delta
+import deltaStruct from "./delta/struct";
+import deltaArray from "./delta/array";
+
+// Composite
+import optional from "./optional";
+import struct from "./struct";
+import array from "./array";
+import union from "./union";
+import tuple from "./tuple";
+import map from "./map";
+import set from "./set";
+
+const Composite = {
+    deltaStruct,
+    deltaArray,
+
+    optional,
+    struct,
+    array,
+    union,
+    tuple,
+    map,
+    set,
+};
+
+export default Composite;
+```
+
+## package/src/codec/composite/map.ts (38 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+function map<K, V>(key: Type.Codec.External<K>, value: Type.Codec.External<V>) {
+    const internalKey = key as Type.Codec.Internal<K>;
+    const internalValue = value as Type.Codec.Internal<V>;
+
+    return {
+        write: (writer, value) => {
+            writer.u16(value.size());
+
+            const entries: [K, V][] = [];
+            value.forEach((v, k) => entries.push([k, v]));
+            entries.sort((a, b) => tostring(a[0]) < tostring(b[0]));
+
+            entries.forEach(([k, v]) => {
+                internalKey.write(writer, k);
+                internalValue.write(writer, v);
+            });
+        },
+        read: (cursor) => {
+            const len = cursor.u16();
+
+            const result = new Map<K, V>();
+            for (let i = 0; i < len; i++) {
+                const key = internalKey.read(cursor);
+                const value = internalValue.read(cursor);
+
+                result.set(key, value);
+            }
+
+            return result;
+        },
+        _default: new Map(),
+    } as Type.Codec.Internal<Map<K, V>> as Type.Codec.External<Map<K, V>>;
+}
+
+export default map;
+```
+
+## package/src/codec/composite/optional.ts (25 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+function optional<T>(codec: Type.Codec.External<T>): Type.Codec.External<T | undefined> {
+    const internalCodec = codec as Type.Codec.Internal<T>;
+
+    return {
+        write: (writer, value) => {
+            if (value === undefined) {
+                writer.u8(0);
+                return;
+            }
+            writer.u8(1);
+            internalCodec.write(writer, value);
+        },
+        read: (cursor) => {
+            const present = cursor.u8();
+            if (present === 0) return undefined;
+            return internalCodec.read(cursor);
+        },
+        _default: undefined,
+    } as Type.Codec.Internal<T | undefined> as Type.Codec.External<T | undefined>;
+}
+
+export default optional;
+```
+
+## package/src/codec/composite/set.ts (31 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+function set<T>(codec: Type.Codec.External<T>) {
+    const internalCodec = codec as Type.Codec.Internal<T>;
+
+    return {
+        write: (writer, value) => {
+            writer.u16(value.size());
+
+            value.forEach((v) => {
+                internalCodec.write(writer, v);
+            });
+        },
+        read: (cursor) => {
+            const len = cursor.u16();
+
+            const result = new Set<T>();
+            for (let i = 0; i < len; i++) {
+                const value = internalCodec.read(cursor);
+
+                result.add(value);
+            }
+
+            return result;
+        },
+        _default: new Set<T>(),
+    } as Type.Codec.Internal<Set<T>> as Type.Codec.External<Set<T>>;
+}
+
+export default set;
+```
+
+## package/src/codec/composite/struct.ts (149 lines)
+```ts
+//!optimize 2
+//!native
+
+// Package
+import Object from "@rbxts/object-utils";
+
+// Internal
+import * as Type from "@type";
+
+// Utility
+import { splitBoolKeys, getBitmapBytes, packBools, unpackBools } from "@utility/bool-pack";
+
+function struct<T extends Record<string, Type.Codec.External<unknown>>>(fields: T) {
+    const internalFields = fields as unknown as Record<string, Type.Codec.Internal<unknown>>;
+    const allKeys = (Object.keys(internalFields) as string[]).sort();
+    const { dataKeys, boolKeys } = splitBoolKeys(internalFields, allKeys);
+    const bitmapBytes = getBitmapBytes(boolKeys.size());
+    const dataLen = dataKeys.size();
+    const hasBools = boolKeys.size() > 0;
+
+    const dataCodecs: Type.Codec.Internal<unknown>[] = [];
+    const dataKeyArr: string[] = [];
+
+    for (let i = 0; i < dataLen; i++) {
+        dataKeyArr[i] = dataKeys[i];
+        dataCodecs[i] = internalFields[dataKeys[i]];
+    }
+
+    let allDirect = dataLen > 0;
+    let fixedSize = 0;
+
+    for (let i = 0; i < dataLen; i++) {
+        const c = dataCodecs[i];
+        if (c._size !== undefined && c._directWrite !== undefined && c._directRead !== undefined) {
+            fixedSize += c._size;
+        } else {
+            allDirect = false;
+            break;
+        }
+    }
+
+    const boolBytes = getBitmapBytes(boolKeys.size());
+    const totalFixed = fixedSize + boolBytes;
+
+    const defaultResult: Record<string, unknown> = {};
+    for (let i = 0; i < allKeys.size(); i++) {
+        defaultResult[allKeys[i]] = internalFields[allKeys[i]]._default;
+    }
+
+    if (allDirect) {
+        const offsets: number[] = [];
+        const directWrites: ((buf: buffer, off: number, value: unknown) => void)[] = [];
+        const directReads: ((buf: buffer, off: number) => unknown)[] = [];
+
+        let runningOffset = 0;
+        for (let i = 0; i < dataLen; i++) {
+            offsets[i] = runningOffset;
+            directWrites[i] = dataCodecs[i]._directWrite!;
+            directReads[i] = dataCodecs[i]._directRead!;
+            runningOffset += dataCodecs[i]._size!;
+        }
+
+        const directWrite = (buf: buffer, off: number, value: unknown) => {
+            const val = value as Record<string, unknown>;
+            for (let i = 0; i < dataLen; i++) {
+                directWrites[i](buf, off + offsets[i], val[dataKeyArr[i]]);
+            }
+            if (hasBools) {
+                let bitmap = 0;
+                for (let i = 0; i < boolKeys.size(); i++) {
+                    if ((val as Record<string, unknown>)[boolKeys[i]] === true) {
+                        bitmap = bit32.bor(bitmap, bit32.lshift(1, i));
+                    }
+                }
+
+                if (boolBytes === 1) buffer.writeu8(buf, off + fixedSize, bitmap);
+                else if (boolBytes === 2) buffer.writeu16(buf, off + fixedSize, bitmap);
+                else buffer.writeu32(buf, off + fixedSize, bitmap);
+            }
+        };
+
+        const directRead = (buf: buffer, off: number) => {
+            const result: Record<string, unknown> = {};
+            for (let i = 0; i < dataLen; i++) {
+                result[dataKeyArr[i]] = directReads[i](buf, off + offsets[i]);
+            }
+            if (hasBools) {
+                let bitmap: number;
+
+                if (boolBytes === 1) bitmap = buffer.readu8(buf, off + fixedSize);
+                else if (boolBytes === 2) bitmap = buffer.readu16(buf, off + fixedSize);
+                else bitmap = buffer.readu32(buf, off + fixedSize);
+
+                for (let i = 0; i < boolKeys.size(); i++) {
+                    result[boolKeys[i]] = bit32.band(bitmap, bit32.lshift(1, i)) !== 0;
+                }
+            }
+            return result;
+        };
+
+        return {
+            write: (writer, value) => {
+                writer.ensureSpace(totalFixed);
+                directWrite(writer.buf, writer.offset, value);
+                writer.offset += totalFixed;
+            },
+            read: (cursor) => {
+                cursor.ensureRemaining(totalFixed);
+                const result = directRead(cursor.buf, cursor.offset);
+                cursor.offset += totalFixed;
+                return result;
+            },
+            _directWrite: directWrite,
+            _directRead: directRead,
+
+            _default: defaultResult,
+
+            _size: totalFixed,
+        } as Type.Codec.Internal<Type.Codec.InferSchema<T>> as Type.Codec.External<
+            Type.Codec.InferSchema<T>
+        >;
+    }
+
+    return {
+        write: (writer, value) => {
+            const val = value as Record<string, unknown>;
+            for (let i = 0; i < dataLen; i++) {
+                dataCodecs[i].write(writer, val[dataKeyArr[i]]);
+            }
+
+            if (hasBools) packBools(writer, val, boolKeys, bitmapBytes);
+        },
+        read: (cursor) => {
+            const result: Record<string, unknown> = {};
+            for (let i = 0; i < dataLen; i++) {
+                result[dataKeyArr[i]] = dataCodecs[i].read(cursor);
+            }
+
+            if (hasBools) unpackBools(cursor, result, boolKeys, bitmapBytes);
+
+            return result;
+        },
+        _default: defaultResult,
+    } as Type.Codec.Internal<Type.Codec.InferSchema<T>> as Type.Codec.External<
+        Type.Codec.InferSchema<T>
+    >;
+}
+
+export default struct;
+```
+
+## package/src/codec/composite/tuple.ts (27 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+function tuple<T extends Type.Codec.External<unknown>[]>(...values: T) {
+    const internalValues = values as unknown as Type.Codec.Internal<unknown>[];
+
+    return {
+        write: (writer, value) => {
+            internalValues.forEach((codec, i) => {
+                codec.write(writer, value[i]);
+            });
+        },
+        read: (cursor) => {
+            const result: unknown[] = [];
+            internalValues.forEach((codec, i) => {
+                result[i] = codec.read(cursor);
+            });
+
+            return result;
+        },
+        _default: [] as { [K in keyof T]: Type.Codec.Infer<T[K]> },
+    } as Type.Codec.Internal<{
+        [K in keyof T]: Type.Codec.Infer<T[K]>;
+    }> as Type.Codec.External<{ [K in keyof T]: Type.Codec.Infer<T[K]> }>;
+}
+
+export default tuple;
+```
+
+## package/src/codec/composite/union.ts (61 lines)
+```ts
+// Package
+import Object from "@rbxts/object-utils";
+
+// Internal
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+function union<V extends Record<string, Type.Codec.External<unknown>>>(variants: V) {
+    const keys = (Object.keys(variants) as string[]).sort();
+    const internalVariants = variants as unknown as Record<string, Type.Codec.Internal<unknown>>;
+
+    if (keys.size() > Constant.U8_MAX) {
+        Report.log("warn", "CODEC_UNION_TOO_MANY_VARIANTS", { count: keys.size() });
+    }
+
+    const keyToIndex = new Map<string, number>();
+    keys.forEach((key, i) => keyToIndex.set(key, i));
+
+    return {
+        write: (writer, value) => {
+            const _value = value as { type: string } & Record<string, unknown>;
+            const _type = _value.type;
+            const index = keyToIndex.get(_type);
+
+            if (index === undefined) {
+                Report.log("warn", "CODEC_UNION_UNKNOWN_VARIANT", { type: _type });
+                writer.u8(0);
+                return;
+            }
+
+            writer.u8(index);
+
+            const data: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(_value)) {
+                if (k !== "type") data[k] = v;
+            }
+
+            internalVariants[_type].write(writer, data);
+        },
+        read: (cursor) => {
+            const index = cursor.u8();
+
+            if (index >= keys.size()) {
+                Report.log("warn", "CODEC_UNION_INVALID_INDEX", { index, max: keys.size() });
+                return { type: keys[0] };
+            }
+
+            const _type = keys[index];
+            const data = internalVariants[_type].read(cursor) as Record<string, unknown>;
+
+            data["type"] = _type;
+            return data;
+        },
+        _default: { type: keys[0] },
+    } as Type.Codec.Internal<Type.Codec.Union<V>> as Type.Codec.External<Type.Codec.Union<V>>;
+}
+
+export default union;
+```
+
+## package/src/codec/index.ts (17 lines)
+```ts
+// Internal
+import * as Type from "../type";
+
+// Codec
+import Primitive from "./primitive";
+import Composite from "./composite";
+import Roblox from "./roblox";
+
+export type Codec<T> = Type.Codec.External<T>;
+
+const Codec = {
+    ...Primitive,
+    ...Composite,
+    ...Roblox,
+};
+
+export default Codec;
+```
+
+## package/src/codec/primitive/float.ts (51 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+function float(min: number, max: number, precision?: number): Type.Codec.External<number> {
+    if (precision === undefined) {
+        return {
+            write: (writer, value) => writer.f16(value),
+            read: (cursor) => cursor.f16(),
+            _default: min,
+        } as Type.Codec.Internal<number> as Type.Codec.External<number>;
+    }
+
+    const steps = math.floor((max - min) / precision);
+
+    let write: (writer: Type.Writer, value: number) => void;
+    let read: (cursor: Type.Cursor) => number;
+
+    if (steps <= Constant.U8_MAX) {
+        write = (writer, value) => writer.u8(math.round((value - min) / precision));
+        read = (cursor) => cursor.u8() * precision + min;
+    } else if (steps <= Constant.U16_MAX) {
+        write = (writer, value) => writer.u16(math.round((value - min) / precision));
+        read = (cursor) => cursor.u16() * precision + min;
+    } else if (steps <= Constant.U24_MAX) {
+        write = (writer, value) => writer.u24(math.round((value - min) / precision!));
+        read = (cursor) => cursor.u24() * precision! + min;
+    } else if (steps <= Constant.U32_MAX) {
+        write = (writer, value) => writer.u32(math.round((value - min) / precision));
+        read = (cursor) => cursor.u32() * precision + min;
+    } else {
+        Report.log("warn", "CODEC_FLOAT_STEPS_EXCEEDED", { min, max, precision, steps });
+
+        write = (writer, value) => writer.f32(value);
+        read = (cursor) => cursor.f32();
+    }
+
+    return {
+        write,
+        read,
+        _default: min,
+    } as Type.Codec.Internal<number> as Type.Codec.External<number>;
+}
+
+export default float;
+```
+
+## package/src/codec/primitive/index.ts (28 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import literal from "./literal";
+import float from "./float";
+import str from "./string";
+import zint from "./zint";
+import int from "./int";
+import Num from "./num";
+
+const Primitive = {
+    ...Num,
+
+    string: str,
+    literal,
+    float,
+    zint,
+    int,
+
+    boolean: {
+        write: (w, v) => w.bool(v),
+        read: (c) => c.bool(),
+        _default: false,
+    } as Type.Codec.Internal<boolean> as Type.Codec.External<boolean>,
+};
+
+export default Primitive;
+```
+
+## package/src/codec/primitive/int.ts (58 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import Constant from "@constant";
+import * as Type from "@type";
+
+function int(min: number, max: number): Type.Codec.External<number> {
+    const range = max - min;
+
+    let write: (writer: Type.Writer, value: number) => void;
+    let read: (cursor: Type.Cursor) => number;
+    let directWrite: (buf: buffer, off: number, value: number) => void;
+    let directRead: (buf: buffer, off: number) => number;
+
+    let size: number;
+
+    if (range <= Constant.U8_MAX) {
+        write = (writer, value) => writer.u8(value - min);
+        read = (cursor) => cursor.u8() + min;
+        directWrite = (b, o, v) => buffer.writeu8(b, o, v - min);
+        directRead = (b, o) => buffer.readu8(b, o) + min;
+
+        size = 1;
+    } else if (range <= Constant.U16_MAX) {
+        write = (writer, value) => writer.u16(value - min);
+        read = (cursor) => cursor.u16() + min;
+        directWrite = (b, o, v) => buffer.writeu16(b, o, v - min);
+        directRead = (b, o) => buffer.readu16(b, o) + min;
+
+        size = 2;
+    } else if (range <= Constant.U24_MAX) {
+        write = (writer, value) => writer.u24(value - min);
+        read = (cursor) => cursor.u24() + min;
+
+        size = 3;
+    } else {
+        write = (writer, value) => writer.u32(value - min);
+        read = (cursor) => cursor.u32() + min;
+        directWrite = (b, o, v) => buffer.writeu32(b, o, v - min);
+        directRead = (b, o) => buffer.readu32(b, o) + min;
+
+        size = 4;
+    }
+
+    return {
+        write,
+        read,
+        _directWrite: directWrite!,
+        _directRead: directRead!,
+
+        _default: min,
+
+        _size: size,
+    } as Type.Codec.Internal<number> as Type.Codec.External<number>;
+}
+
+export default int;
+```
+
+## package/src/codec/primitive/literal.ts (39 lines)
+```ts
+// Internal
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+function literal<T extends readonly (string | number | boolean)[]>(
+    ...values: T
+): Type.Codec.External<T[number]> {
+    if (values.size() > Constant.U8_MAX) {
+        Report.log("warn", "CODEC_LITERAL_TOO_MANY_VALUES", { count: values.size() });
+    }
+
+    return {
+        write: (writer, value) => {
+            const index = (values as unknown as defined[]).indexOf(value as defined);
+            if (index === -1) {
+                Report.log("warn", "CODEC_LITERAL_UNKNOWN_VALUE", {
+                    value: tostring(value as defined),
+                });
+                writer.u8(0);
+                return;
+            }
+            writer.u8(index);
+        },
+        read: (cursor) => {
+            const index = cursor.u8();
+            if (index >= values.size()) {
+                Report.log("warn", "CODEC_LITERAL_INVALID_INDEX", { index, max: values.size() });
+                return values[0];
+            }
+            return values[index];
+        },
+        _default: values[0],
+    } as Type.Codec.Internal<T[number]> as Type.Codec.External<T[number]>;
+}
+
+export default literal;
+```
+
+## package/src/codec/primitive/num.ts (111 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+function define<T>(
+    write: (writer: Type.Writer, value: T) => void,
+    read: (cursor: Type.Cursor) => T,
+    directWrite: (buf: buffer, off: number, value: T) => void,
+    directRead: (buf: buffer, off: number) => T,
+    size: number,
+) {
+    return {
+        write,
+        read,
+
+        _directWrite: directWrite,
+        _directRead: directRead,
+
+        _default: 0,
+        _size: size,
+    } as Type.Codec.Internal<T> as Type.Codec.External<T>;
+}
+
+function clamp(value: number, min: number, max: number, t: string): number {
+    if (value < min || value > max) {
+        Report.log("warn", "PRIMITIVE_OVERFLOW", { value, min, max, type: t });
+        return math.clamp(value, min, max);
+    }
+    return value;
+}
+
+const Num = {
+    u8: define<number>(
+        (w, v) => w.u8(clamp(v, 0, Constant.U8_MAX, "u8")),
+        (c) => c.u8(),
+        (b, o, v) => buffer.writeu8(b, o, v),
+        (b, o) => buffer.readu8(b, o),
+        1,
+    ),
+    u16: define<number>(
+        (w, v) => w.u16(clamp(v, 0, Constant.U16_MAX, "u16")),
+        (c) => c.u16(),
+        (b, o, v) => buffer.writeu16(b, o, v),
+        (b, o) => buffer.readu16(b, o),
+        2,
+    ),
+    u32: define<number>(
+        (w, v) => w.u32(clamp(v, 0, Constant.U32_MAX, "u32")),
+        (c) => c.u32(),
+        (b, o, v) => buffer.writeu32(b, o, v),
+        (b, o) => buffer.readu32(b, o),
+        4,
+    ),
+    i8: define<number>(
+        (w, v) => w.i8(clamp(v, Constant.I8_MIN, Constant.I8_MAX, "i8")),
+        (c) => c.i8(),
+        (b, o, v) => buffer.writei8(b, o, v),
+        (b, o) => buffer.readi8(b, o),
+        1,
+    ),
+    i16: define<number>(
+        (w, v) => w.i16(clamp(v, Constant.I16_MIN, Constant.I16_MAX, "i16")),
+        (c) => c.i16(),
+        (b, o, v) => buffer.writei16(b, o, v),
+        (b, o) => buffer.readi16(b, o),
+        2,
+    ),
+    i32: define<number>(
+        (w, v) => w.i32(clamp(v, Constant.I32_MIN, Constant.I32_MAX, "i32")),
+        (c) => c.i32(),
+        (b, o, v) => buffer.writei32(b, o, v),
+        (b, o) => buffer.readi32(b, o),
+        4,
+    ),
+    f32: define<number>(
+        (w, v) => w.f32(v),
+        (c) => c.f32(),
+        (b, o, v) => buffer.writef32(b, o, v),
+        (b, o) => buffer.readf32(b, o),
+        4,
+    ),
+    f64: define<number>(
+        (w, v) => w.f64(v),
+        (c) => c.f64(),
+        (b, o, v) => buffer.writef64(b, o, v),
+        (b, o) => buffer.readf64(b, o),
+        8,
+    ),
+
+    f16: {
+        write: (w, v) => w.f16(v),
+        read: (c) => c.f16(),
+        _default: 0,
+        _size: 2,
+    } as Type.Codec.Internal<number> as Type.Codec.External<number>,
+
+    u24: {
+        write: (w, v) => w.u24(v),
+        read: (c) => c.u24(),
+        _default: 0,
+        _size: 3,
+    } as Type.Codec.Internal<number> as Type.Codec.External<number>,
+};
+
+export default Num;
+```
+
+## package/src/codec/primitive/string.ts (28 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Codec
+import Num from "./num";
+
+function str(length: Type.Codec.External<number>) {
+    const internalLength = length as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            const len = value.size();
+
+            internalLength.write(writer, value.size());
+            writer.string(value, len);
+        },
+        read: (cursor) => {
+            const len = internalLength.read(cursor);
+
+            return cursor.string(len);
+        },
+        _default: "",
+    } as Type.Codec.Internal<string> as Type.Codec.External<string>;
+}
+
+export default setmetatable(str(Num.u32), {
+    __call: (_self, ...args: Array<unknown>) => str(args[0] as Type.Codec.External<number>),
+}) as Type.Codec.String;
+```
+
+## package/src/codec/primitive/zint.ts (38 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+function encodeZigzag(n: number): number {
+    return bit32.bxor(bit32.lshift(n, 1), bit32.arshift(n, 31));
+}
+function decodeZigzag(n: number): number {
+    return bit32.bxor(bit32.rshift(n, 1), -bit32.band(n, 1));
+}
+
+const zint = {
+    write: (writer, value) => {
+        let n = encodeZigzag(value);
+
+        while (n > 0x7f) {
+            writer.u8(bit32.bor(bit32.band(n, 0x7f), 0x80));
+            n = bit32.rshift(n, 7);
+        }
+        writer.u8(n);
+    },
+    read: (cursor) => {
+        let n = 0;
+        let shift = 0;
+
+        while (true) {
+            const byte = cursor.u8();
+            n = bit32.bor(n, bit32.lshift(bit32.band(byte, 0x7f), shift));
+            shift += 7;
+
+            if (bit32.band(byte, 0x80) === 0) break;
+        }
+
+        return decodeZigzag(n);
+    },
+    _default: 0,
+} as Type.Codec.Internal<number> as Type.Codec.External<number>;
+
+export default zint;
+```
+
+## package/src/codec/roblox/brick-color.ts (12 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+const brickColor = {
+    write: (writer, value) => {
+        writer.u16(value.Number);
+    },
+    read: (cursor) => new BrickColor(cursor.u16()),
+    _default: new BrickColor("White"),
+} as Type.Codec.Internal<BrickColor> as Type.Codec.External<BrickColor>;
+
+export default brickColor;
+```
+
+## package/src/codec/roblox/buffer.ts (17 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+const buff = {
+    write: (writer, value) => {
+        const len = buffer.len(value);
+        writer.u32(len);
+        writer.bytes(value, 0, len);
+    },
+    read: (cursor) => {
+        const len = cursor.u32();
+        return cursor.bytes(len);
+    },
+    _default: buffer.create(0),
+} as Type.Codec.Internal<buffer> as Type.Codec.External<buffer>;
+
+export default buff;
+```
+
+## package/src/codec/roblox/cframe.ts (119 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Codec
+import Primitive from "@codec/primitive";
+import vector3 from "./vector3";
+
+function extractQuaternion(cf: CFrame): [number, number, number, number] {
+    const [_, __, ___, r00, r01, r02, r10, r11, r12, r20, r21, r22] = cf.GetComponents();
+
+    const trace = r00 + r11 + r22;
+    let qx: number, qy: number, qz: number, qw: number;
+
+    if (trace > 0) {
+        const s = 0.5 / math.sqrt(trace + 1);
+        qw = 0.25 / s;
+        qx = (r21 - r12) * s;
+        qy = (r02 - r20) * s;
+        qz = (r10 - r01) * s;
+    } else if (r00 > r11 && r00 > r22) {
+        const s = 2 * math.sqrt(1 + r00 - r11 - r22);
+        qw = (r21 - r12) / s;
+        qx = 0.25 * s;
+        qy = (r01 + r10) / s;
+        qz = (r02 + r20) / s;
+    } else if (r11 > r22) {
+        const s = 2 * math.sqrt(1 + r11 - r00 - r22);
+        qw = (r02 - r20) / s;
+        qx = (r01 + r10) / s;
+        qy = 0.25 * s;
+        qz = (r12 + r21) / s;
+    } else {
+        const s = 2 * math.sqrt(1 + r22 - r00 - r11);
+        qw = (r10 - r01) / s;
+        qx = (r02 + r20) / s;
+        qy = (r12 + r21) / s;
+        qz = 0.25 * s;
+    }
+
+    return [qx, qy, qz, qw];
+}
+
+function cframe(
+    positionCodec: Type.Codec.Vector3 = vector3,
+    rotationCodec: Type.Codec.External<number> = Primitive.f32,
+): Type.Codec.External<CFrame> {
+    const internalPosition = positionCodec as unknown as Type.Codec.Internal<Vector3>;
+    const internalRotation = rotationCodec as unknown as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            internalPosition.write(writer, value.Position);
+
+            const [qx, qy, qz, qw] = extractQuaternion(value);
+            const components = [qx, qy, qz, qw];
+
+            let largestIndex = 0;
+            let largestValue = math.abs(components[0]);
+            for (let i = 1; i < 4; i++) {
+                if (math.abs(components[i]) > largestValue) {
+                    largestValue = math.abs(components[i]);
+                    largestIndex = i;
+                }
+            }
+
+            writer.u8(largestIndex);
+
+            for (let i = 0; i < 4; i++) {
+                if (i !== largestIndex) {
+                    internalRotation.write(writer, components[i]);
+                }
+            }
+        },
+        read: (cursor) => {
+            const pos = internalPosition.read(cursor);
+
+            const largestIndex = cursor.u8();
+
+            const values: number[] = [];
+            for (let i = 0; i < 3; i++) {
+                values[i] = internalRotation.read(cursor);
+            }
+
+            const sumSq = values[0] ** 2 + values[1] ** 2 + values[2] ** 2;
+            const largest = math.sqrt(math.max(0, 1 - sumSq));
+
+            const q: number[] = [];
+            let vi = 0;
+            for (let i = 0; i < 4; i++) {
+                if (i === largestIndex) {
+                    q[i] = largest;
+                } else {
+                    q[i] = values[vi++];
+                }
+            }
+
+            return new CFrame(
+                pos.X,
+                pos.Y,
+                pos.Z,
+                1 - 2 * (q[1] ** 2 + q[2] ** 2),
+                2 * (q[0] * q[1] - q[2] * q[3]),
+                2 * (q[0] * q[2] + q[1] * q[3]),
+                2 * (q[0] * q[1] + q[2] * q[3]),
+                1 - 2 * (q[0] ** 2 + q[2] ** 2),
+                2 * (q[1] * q[2] - q[0] * q[3]),
+                2 * (q[0] * q[2] - q[1] * q[3]),
+                2 * (q[1] * q[2] + q[0] * q[3]),
+                1 - 2 * (q[0] ** 2 + q[1] ** 2),
+            );
+        },
+        _default: new CFrame(),
+    } as Type.Codec.Internal<CFrame> as Type.Codec.External<CFrame>;
+}
+
+export default setmetatable(cframe(), {
+    __call: (_self, ...args: Array<unknown>) =>
+        cframe(args[0] as Type.Codec.Vector3, args[1] as Type.Codec.External<number>),
+}) as Type.Codec.CFrame;
+```
+
+## package/src/codec/roblox/color3.ts (14 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+const color3 = {
+    write: (writer, value) => {
+        writer.f16(value.R);
+        writer.f16(value.G);
+        writer.f16(value.B);
+    },
+    read: (cursor) => new Color3(cursor.f16(), cursor.f16(), cursor.f16()),
+    _default: new Color3(1, 1, 1),
+} as Type.Codec.Internal<Color3> as Type.Codec.External<Color3>;
+
+export default color3;
+```
+
+## package/src/codec/roblox/enum.ts (32 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+function enumCodec<T extends EnumItem>(enumType: { GetEnumItems(): T[] }) {
+    const items = enumType.GetEnumItems();
+    const valueToItem = new Map<number, T>();
+
+    items.forEach((item) => valueToItem.set(item.Value, item));
+
+    return {
+        write: (writer, value) => {
+            writer.u16(value.Value);
+        },
+        read: (cursor) => {
+            const value = cursor.u16();
+            const item = valueToItem.get(value);
+
+            if (item === undefined) {
+                Report.log("warn", "CODEC_ENUM_UNKNOWN_VALUE", { value });
+                return items[0];
+            }
+
+            return item;
+        },
+        _default: items[0],
+    } as Type.Codec.Internal<T> as Type.Codec.External<T>;
+}
+
+export default enumCodec;
+```
+
+## package/src/codec/roblox/index.ts (33 lines)
+```ts
+// Roblox
+import numberRange from "./number-range";
+import brickColor from "./brick-color";
+import unknown from "./unknown";
+import vector2 from "./vector2";
+import vector3 from "./vector3";
+import enumCodec from "./enum";
+import cframe from "./cframe";
+import color3 from "./color3";
+import udim2 from "./udim2";
+import buff from "./buffer";
+import udim from "./udim";
+import rect from "./rect";
+import ray from "./ray";
+
+const Roblox = {
+    enum: enumCodec,
+    buffer: buff,
+
+    numberRange,
+    brickColor,
+    unknown,
+    vector2,
+    vector3,
+    cframe,
+    color3,
+    udim2,
+    udim,
+    rect,
+    ray,
+};
+
+export default Roblox;
+```
+
+## package/src/codec/roblox/number-range.ts (24 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import Num from "@codec/primitive/num";
+
+function numberRange(min: Type.Codec.External<number>, max: Type.Codec.External<number>) {
+    const internalMin = min as Type.Codec.Internal<number>;
+    const internalMax = max as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            internalMin.write(writer, value.Min);
+            internalMax.write(writer, value.Max);
+        },
+        read: (cursor) => new NumberRange(internalMin.read(cursor), internalMax.read(cursor)),
+        _default: new NumberRange(0, 0),
+    } as Type.Codec.Internal<NumberRange> as Type.Codec.External<NumberRange>;
+}
+
+export default setmetatable(numberRange(Num.f16, Num.f16), {
+    __call: (_self, ...args: Array<unknown>) =>
+        numberRange(args[0] as Type.Codec.External<number>, args[1] as Type.Codec.External<number>),
+}) as Type.Codec.NumberRange;
+```
+
+## package/src/codec/roblox/ray.ts (30 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import vector3 from "./vector3";
+
+function numberRange(
+    origin: Type.Codec.External<Vector3>,
+    direction: Type.Codec.External<Vector3>,
+) {
+    const internalOrigin = origin as Type.Codec.Internal<Vector3>;
+    const internalDirection = direction as Type.Codec.Internal<Vector3>;
+
+    return {
+        write: (writer, value) => {
+            internalOrigin.write(writer, value.Origin);
+            internalDirection.write(writer, value.Direction);
+        },
+        read: (cursor) => new Ray(internalOrigin.read(cursor), internalDirection.read(cursor)),
+        _default: new Ray(Vector3.zero, Vector3.zero),
+    } as Type.Codec.Internal<Ray> as Type.Codec.External<Ray>;
+}
+
+export default setmetatable(numberRange(vector3, vector3), {
+    __call: (_self, ...args: Array<unknown>) =>
+        numberRange(
+            args[0] as Type.Codec.External<Vector3>,
+            args[1] as Type.Codec.External<Vector3>,
+        ),
+}) as Type.Codec.Ray;
+```
+
+## package/src/codec/roblox/rect.ts (27 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import vector2 from "./vector2";
+
+function numberRange(min: Type.Codec.External<Vector2>, max: Type.Codec.External<Vector2>) {
+    const internalMin = min as Type.Codec.Internal<Vector2>;
+    const internalMax = max as Type.Codec.Internal<Vector2>;
+
+    return {
+        write: (writer, value) => {
+            internalMin.write(writer, value.Min);
+            internalMax.write(writer, value.Max);
+        },
+        read: (cursor) => new Rect(internalMin.read(cursor), internalMax.read(cursor)),
+        _default: new Rect(),
+    } as Type.Codec.Internal<Rect> as Type.Codec.External<Rect>;
+}
+
+export default setmetatable(numberRange(vector2, vector2), {
+    __call: (_self, ...args: Array<unknown>) =>
+        numberRange(
+            args[0] as Type.Codec.External<Vector2>,
+            args[1] as Type.Codec.External<Vector2>,
+        ),
+}) as Type.Codec.Rect;
+```
+
+## package/src/codec/roblox/udim.ts (22 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import Num from "@codec/primitive/num";
+
+function udim(offset: Type.Codec.External<number>) {
+    const internalOffset = offset as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            writer.f16(value.Scale);
+            internalOffset.write(writer, value.Offset);
+        },
+        read: (cursor) => new UDim(cursor.f16(), internalOffset.read(cursor)),
+        _default: new UDim(0, 0),
+    } as Type.Codec.Internal<UDim> as Type.Codec.External<UDim>;
+}
+
+export default setmetatable(udim(Num.f16), {
+    __call: (_self, ...args: Array<unknown>) => udim(args[0] as Type.Codec.External<number>),
+}) as Type.Codec.UDim;
+```
+
+## package/src/codec/roblox/udim2.ts (32 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import Num from "@codec/primitive/num";
+
+function udim2(xOffset: Type.Codec.External<number>, yOffset: Type.Codec.External<number>) {
+    const internalXOffset = xOffset as Type.Codec.Internal<number>;
+    const internalYOffset = yOffset as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            writer.f16(value.X.Scale);
+            internalXOffset.write(writer, value.X.Offset);
+            writer.f16(value.Y.Scale);
+            internalYOffset.write(writer, value.Y.Offset);
+        },
+        read: (cursor) =>
+            new UDim2(
+                cursor.f16(),
+                internalXOffset.read(cursor),
+                cursor.f16(),
+                internalYOffset.read(cursor),
+            ),
+        _default: new UDim2(0, 0, 0, 0),
+    } as Type.Codec.Internal<UDim2> as Type.Codec.External<UDim2>;
+}
+
+export default setmetatable(udim2(Num.f16, Num.f16), {
+    __call: (_self, ...args: Array<unknown>) =>
+        udim2(args[0] as Type.Codec.External<number>, args[1] as Type.Codec.External<number>),
+}) as Type.Codec.UDim2;
+```
+
+## package/src/codec/roblox/unknown.ts (34 lines)
+```ts
+// Package
+import { HttpService } from "@rbxts/services";
+
+// Security
+import Report from "@security/report";
+
+// Internal
+import * as Type from "@type";
+
+export default {
+    write: (writer, value) => {
+        const [ok, json] = pcall(() => HttpService.JSONEncode(value));
+        if (!ok) {
+            Report.log("warn", "JSON_ENCODE_FAILED", { error: tostring(json) });
+            writer.string("", 1);
+            return;
+        }
+        const len = json.size();
+
+        writer.u16(len);
+        writer.string(json, len);
+    },
+    read: (cursor) => {
+        const len = cursor.u16();
+        const json = cursor.string(len);
+        const [ok, value] = pcall(() => HttpService.JSONDecode(json));
+        if (!ok) {
+            Report.log("warn", "JSON_DECODE_FAILED", { error: tostring(value) });
+            return undefined;
+        }
+        return value;
+    },
+    _default: undefined,
+} as Type.Codec.Internal<unknown> as Type.Codec.External<unknown>;
+```
+
+## package/src/codec/roblox/vector2.ts (24 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import Num from "@codec/primitive/num";
+
+function vector2(x: Type.Codec.External<number>, y: Type.Codec.External<number>) {
+    const internalX = x as Type.Codec.Internal<number>;
+    const internalY = y as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            internalX.write(writer, value.X);
+            internalY.write(writer, value.Y);
+        },
+        read: (cursor) => new Vector2(internalX.read(cursor), internalY.read(cursor)),
+        _default: Vector2.zero,
+    } as Type.Codec.Internal<Vector2> as Type.Codec.External<Vector2>;
+}
+
+export default setmetatable(vector2(Num.f32, Num.f32), {
+    __call: (_self, ...args: Array<unknown>) =>
+        vector2(args[0] as Type.Codec.External<number>, args[1] as Type.Codec.External<number>),
+}) as Type.Codec.Vector2;
+```
+
+## package/src/codec/roblox/vector3.ts (35 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Primitive
+import Num from "@codec/primitive/num";
+
+function vector3(
+    x: Type.Codec.External<number>,
+    y: Type.Codec.External<number>,
+    z: Type.Codec.External<number>,
+) {
+    const internalX = x as Type.Codec.Internal<number>;
+    const internalY = y as Type.Codec.Internal<number>;
+    const internalZ = z as Type.Codec.Internal<number>;
+
+    return {
+        write: (writer, value) => {
+            internalX.write(writer, value.X);
+            internalY.write(writer, value.Y);
+            internalZ.write(writer, value.Z);
+        },
+        read: (cursor) =>
+            new Vector3(internalX.read(cursor), internalY.read(cursor), internalZ.read(cursor)),
+        _default: Vector3.zero,
+    } as Type.Codec.Internal<Vector3> as Type.Codec.External<Vector3>;
+}
+
+export default setmetatable(vector3(Num.f32, Num.f32, Num.f32), {
+    __call: (_self, ...args: Array<unknown>) =>
+        vector3(
+            args[0] as Type.Codec.External<number>,
+            args[1] as Type.Codec.External<number>,
+            args[2] as Type.Codec.External<number>,
+        ),
+}) as Type.Codec.Vector3;
+```
+
+## package/src/constant.ts (29 lines)
+```ts
+const Constant = {
+    MAX_PAYLOAD: 1048576,
+    WRITER_BYTE_SIZE: 1048576,
+
+    LIB_NAME: "TYPENET",
+    FOLDER_NAME: "__TYPNET",
+    RELIABLE_NAME: "RELIABLE__",
+    UNRELIABLE_NAME: "UNRELIABLE__",
+
+    HANDSHAKE_PACKET_ID: 0,
+    HANDSHAKE_TIMEOUT: 10,
+
+    U8_MAX: 0xff,
+    U16_MAX: 0xffff,
+    U24_MAX: 0xffffff,
+    U32_MAX: 0xffffffff,
+
+    I8_MIN: -0x80,
+    I8_MAX: 0x7f,
+    I16_MIN: -0x8000,
+    I16_MAX: 0x7fff,
+    I32_MIN: -0x80000000,
+    I32_MAX: 0x7fffffff,
+
+    MAX_ARRAY_LENGTH: 1000,
+    MAX_PACKET_ID: 0xffff,
+};
+
+export default Constant;
+```
+
+## package/src/environment.ts (4 lines)
+```ts
+// Package
+import { RunService } from "@rbxts/services";
+
+export const IS_SERVER = RunService.IsServer();
+```
+
+## package/src/index.ts (56 lines)
+```ts
+// Internal
+import * as Type from "./type";
+
+// Security
+import Report from "./security/report";
+
+// Transport
+import Lifecycle from "./transport/lifecycle";
+import Handshake from "./transport/handshake";
+import Registry from "./transport/registry";
+import Outbound from "./transport/outbound";
+import Inbound from "./transport/inbound";
+import Bridge from "./transport/bridge";
+import Engine from "./transport/engine";
+
+// API
+import definePacket from "./api/packet";
+
+export { default as t } from "./codec";
+export * as Type from "./type";
+
+let started = false;
+
+function start(opts?: Type.StartOptions) {
+    if (started) {
+        Report.log("warn", "TYPENET_MULTIPLE_STARTS");
+        return;
+    }
+
+    if (opts) {
+        Report.setDebug(opts.debug ?? false);
+    }
+
+    Registry.finalize();
+    Lifecycle.start();
+
+    Bridge.start();
+    Bridge.onReceive(Inbound.handle);
+
+    Outbound.start();
+
+    Handshake.start();
+    Engine.start();
+}
+
+declare namespace Typenet {
+    export type Codec<T> = Type.Codec.External<T>;
+}
+
+const Typenet = {
+    start,
+
+    definePacket,
+};
+
+export default Typenet;
+```
+
+## package/src/security/report.ts (69 lines)
+```ts
+// Internal
+import Constant from "@constant";
+
+type Severity = "debug" | "warn" | "kick" | "fatal";
+
+type LogContext = {
+    player?: Player;
+    [key: string]: unknown;
+};
+
+const CODE_WIDTH = 22;
+const PLAYER_WIDTH = 14;
+const PREFIX = Constant.LIB_NAME;
+
+let debugEnabled = false;
+
+function pad(s: string, width: number): string {
+    let result = s;
+    while (result.size() < width) result += " ";
+    return result;
+}
+
+function formatContext(context: LogContext): string {
+    const parts: string[] = [];
+    for (const [key, value] of pairs(context)) {
+        if (key === "player") continue;
+        parts.push(`${key}=${tostring(value)}`);
+    }
+    return parts.join(" ");
+}
+
+function log(severity: Severity, code: string, context: LogContext = {}) {
+    if (severity === "debug" && !debugEnabled) return;
+
+    const playerName = context.player !== undefined ? `[${context.player.Name}]` : "";
+    const playerSlot = pad(playerName, PLAYER_WIDTH);
+    const details = formatContext(context);
+
+    const tag = severity === "debug" ? "·" : `[${PREFIX}]`;
+    const paddedCode = pad(code, CODE_WIDTH);
+    const detailsPart = details !== "" ? ` · ${details}` : "";
+
+    const message = `${tag} ${playerSlot} ${paddedCode}${detailsPart}`;
+
+    if (severity === "warn" || severity === "kick") {
+        warn(message);
+    } else {
+        print(message);
+    }
+
+    if (severity === "kick" && context.player !== undefined) {
+        context.player.Kick(`Network violation: ${code}`);
+    }
+
+    if (severity === "fatal") {
+        error(message);
+    }
+}
+
+function setDebug(enabled: boolean) {
+    debugEnabled = enabled;
+}
+
+const Report = {
+    log,
+    setDebug,
+};
+
+export default Report;
+```
+
+## package/src/transport/bridge.ts (125 lines)
+```ts
+// Package
+import { Players, ReplicatedStorage } from "@rbxts/services";
+
+// Internal
+import { IS_SERVER } from "@environment";
+import Constant from "@constant";
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+// Utility
+import resolveTarget from "@utility/resolve-target";
+
+type ReceiveCallback = (player: Player, buf: buffer) => void;
+
+let reliable: RemoteEvent;
+let unreliable: UnreliableRemoteEvent;
+
+let started = false;
+
+let receiveCallback: ReceiveCallback | undefined;
+
+function start() {
+    if (started) return;
+
+    if (IS_SERVER) {
+        const folder = new Instance("Folder");
+        folder.Name = Constant.FOLDER_NAME;
+        folder.Parent = ReplicatedStorage;
+
+        reliable = new Instance("RemoteEvent");
+        reliable.Name = Constant.RELIABLE_NAME;
+        reliable.Parent = folder;
+
+        unreliable = new Instance("UnreliableRemoteEvent");
+        unreliable.Name = Constant.UNRELIABLE_NAME;
+        unreliable.Parent = folder;
+
+        reliable.OnServerEvent.Connect((player, buf) => {
+            if (buffer.len(buf as buffer) === 0) {
+                Report.log("warn", "BRIDGE_EMPTY_BUFFER", { player });
+                return;
+            }
+            if (receiveCallback !== undefined) {
+                receiveCallback(player, buf as buffer);
+            }
+        });
+
+        unreliable.OnServerEvent.Connect((player, buf) => {
+            if (buffer.len(buf as buffer) === 0) {
+                Report.log("warn", "BRIDGE_EMPTY_BUFFER", { player });
+                return;
+            }
+            if (receiveCallback !== undefined) {
+                receiveCallback(player, buf as buffer);
+            }
+        });
+
+        Report.log("debug", "BRIDGE_STARTED_SERVER");
+    } else {
+        const folder = ReplicatedStorage.WaitForChild(Constant.FOLDER_NAME) as Folder;
+        if (!folder) Report.log("fatal", "BRIDGE_FOLDER_NOT_FOUND");
+
+        reliable = folder.WaitForChild(Constant.RELIABLE_NAME) as RemoteEvent;
+        if (!reliable) Report.log("fatal", "BRIDGE_RELIABLE_EVENT_NOT_FOUND");
+
+        unreliable = folder.WaitForChild(Constant.UNRELIABLE_NAME) as UnreliableRemoteEvent;
+        if (!unreliable) Report.log("fatal", "BRIDGE_UNRELIABLE_EVENT_NOT_FOUND");
+
+        reliable.OnClientEvent.Connect((buf) => {
+            if (receiveCallback !== undefined) {
+                receiveCallback(Players.LocalPlayer, buf as buffer);
+            }
+        });
+
+        unreliable.OnClientEvent.Connect((buf) => {
+            if (receiveCallback !== undefined) {
+                receiveCallback(Players.LocalPlayer, buf as buffer);
+            }
+        });
+
+        Report.log("debug", "BRIDGE_STARTED_CLIENT");
+    }
+
+    started = true;
+}
+
+function onReceive(callback: ReceiveCallback) {
+    if (receiveCallback !== undefined) {
+        Report.log("warn", "BRIDGE_RECEIVE_OVERRIDDEN");
+    }
+    receiveCallback = callback;
+}
+
+function fireReliable(target?: Type.Target, buf?: buffer) {
+    if (IS_SERVER) {
+        const players = resolveTarget(target);
+        for (const player of players) {
+            reliable.FireClient(player, buf);
+        }
+    } else {
+        reliable.FireServer(buf);
+    }
+}
+
+function fireUnreliable(target?: Type.Target, buf?: buffer) {
+    if (IS_SERVER) {
+        const players = resolveTarget(target);
+        for (const player of players) {
+            unreliable.FireClient(player, buf);
+        }
+    } else {
+        unreliable.FireServer(buf);
+    }
+}
+
+const Bridge = {
+    start,
+    onReceive,
+    fireReliable,
+    fireUnreliable,
+};
+
+export default Bridge;
+```
+
+## package/src/transport/engine.ts (39 lines)
+```ts
+//!optimize 2
+//!native
+
+// Package
+import { RunService } from "@rbxts/services";
+
+// Transport
+import Outbound from "./outbound";
+
+// Security
+import Report from "@security/report";
+
+let running = false;
+let connection: RBXScriptConnection | undefined;
+
+function start() {
+    if (running) {
+        Report.log("warn", "ENGINE_ALREADY_RUNNING");
+        return;
+    }
+    running = true;
+
+    connection = RunService.Heartbeat.Connect((_dt) => Outbound.flush());
+}
+
+function stop() {
+    if (connection) {
+        connection.Disconnect();
+        connection = undefined;
+    }
+    running = false;
+}
+
+const Engine = {
+    start,
+    stop,
+};
+
+export default Engine;
+```
+
+## package/src/transport/handshake.ts (46 lines)
+```ts
+// Package
+import { Players } from "@rbxts/services";
+
+// Internal
+import { IS_SERVER } from "@environment";
+import Constant from "@constant";
+
+// Transport
+import Lifecycle from "./lifecycle";
+import Outbound from "./outbound";
+
+// Security
+import Report from "@security/report";
+
+let started = false;
+
+function start() {
+    if (started) {
+        Report.log("warn", "HANDSHAKE_ALREADY_STARTED");
+        return;
+    }
+    started = true;
+
+    if (IS_SERVER) {
+        Players.PlayerAdded.Connect((player) => {
+            task.delay(Constant.HANDSHAKE_TIMEOUT, () => {
+                if (player.Parent !== undefined && !Lifecycle.isReady(player)) {
+                    Report.log("warn", "HANDSHAKE_TIMEOUT", { player });
+                    player.Kick("Network handshake timed out.");
+                }
+            });
+        });
+    } else {
+        Outbound.send(Constant.HANDSHAKE_PACKET_ID, undefined, undefined, undefined, false);
+
+        Lifecycle.markReady(Players.LocalPlayer);
+
+        Report.log("debug", "HANDSHAKE_SENT");
+    }
+}
+
+const Handshake = {
+    start,
+};
+
+export default Handshake;
+```
+
+## package/src/transport/inbound.ts (81 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import { IS_SERVER } from "@environment";
+import Constant from "@constant";
+
+// Binary
+import Cursor from "@binary/cursor";
+
+// Transport
+import Lifecycle from "./lifecycle";
+import Registry from "./registry";
+
+// Security
+import Report from "@security/report";
+
+function handle(player: Player, buf: buffer) {
+    if (buffer.len(buf) > Constant.MAX_PAYLOAD) {
+        Report.log("kick", "INBOUND_PAYLOAD_TOO_LARGE", { player, size: buffer.len(buf) });
+        return;
+    }
+
+    if (buffer.len(buf) === 0) {
+        Report.log("kick", "INBOUND_EMPTY_BUFFER", { player });
+        return;
+    }
+
+    if (buffer.len(buf) === 1 && buffer.readu8(buf, 0) === 0) {
+        Report.log("debug", "INBOUND_IDENTICAL_FRAME", { player });
+        return;
+    }
+
+    parse(player, buf);
+}
+
+function parse(player: Player, buf: buffer) {
+    const cursor = new Cursor(buf, IS_SERVER ? player : undefined);
+
+    while (cursor.remaining() >= 2) {
+        const id = cursor.u16();
+
+        if (id === Constant.HANDSHAKE_PACKET_ID) {
+            if (IS_SERVER) {
+                Report.log("debug", "INBOUND_HANDSHAKE", { player });
+                Lifecycle.markReady(player);
+            }
+            continue;
+        }
+
+        if (IS_SERVER && !Lifecycle.isReady(player)) {
+            Report.log("kick", "INBOUND_NOT_READY", { player });
+            return;
+        }
+
+        const def = Registry.getById(id);
+        if (def === undefined) {
+            Report.log("warn", "INBOUND_UNKNOWN_PACKET", { player, id });
+            return;
+        }
+
+        if (def.handler === undefined) {
+            Report.log("warn", "INBOUND_NO_HANDLER", { player, id, name: def.name });
+        }
+
+        const data = def.codec !== undefined ? def.codec.read(cursor) : undefined;
+        if (def.handler !== undefined) {
+            def.handler(player, data);
+        }
+    }
+
+    if (cursor.remaining() > 0) {
+        Report.log("kick", "INBOUND_LEFTOVER_BYTES", { player, remaining: cursor.remaining() });
+    }
+}
+
+const Inbound = {
+    handle,
+};
+
+export default Inbound;
+```
+
+## package/src/transport/lifecycle.ts (75 lines)
+```ts
+// Package
+import { Players } from "@rbxts/services";
+
+// Internal
+import { IS_SERVER } from "@environment";
+import Report from "@security/report";
+
+type ReadyCallback = (player: Player) => void;
+type LeaveCallback = (player: Player) => void;
+
+const readyPlayers = new Set<Player>();
+const readyCallbacks: ReadyCallback[] = [];
+const leaveCallbacks: LeaveCallback[] = [];
+
+let started = false;
+
+function markReady(player: Player) {
+    if (readyPlayers.has(player)) {
+        Report.log("warn", "LIFECYCLE_ALREADY_READY", { player });
+        return;
+    }
+    readyPlayers.add(player);
+    Report.log("debug", "LIFECYCLE_PLAYER_READY", { player });
+
+    for (const cb of readyCallbacks) {
+        cb(player);
+    }
+}
+
+function markNotReady(player: Player) {
+    if (!readyPlayers.has(player)) return;
+    readyPlayers.delete(player);
+    Report.log("debug", "LIFECYCLE_PLAYER_NOT_READY", { player });
+}
+
+function isReady(player: Player): boolean {
+    return readyPlayers.has(player);
+}
+
+function onReady(callback: ReadyCallback) {
+    readyCallbacks.push(callback);
+}
+
+function onLeave(callback: LeaveCallback) {
+    leaveCallbacks.push(callback);
+}
+
+function start() {
+    if (!IS_SERVER) return;
+
+    if (started) {
+        Report.log("warn", "LIFECYCLE_ALREADY_STARTED");
+        return;
+    }
+    started = true;
+
+    Players.PlayerRemoving.Connect((player) => {
+        markNotReady(player);
+        Report.log("debug", "LIFECYCLE_PLAYER_LEFT", { player });
+        for (const cb of leaveCallbacks) {
+            cb(player);
+        }
+    });
+}
+
+const Lifecycle = {
+    start,
+    markReady,
+    markNotReady,
+    isReady,
+    onReady,
+    onLeave,
+};
+
+export default Lifecycle;
+```
+
+## package/src/transport/outbound.ts (249 lines)
+```ts
+//!optimize 2
+
+// Internal
+import { IS_SERVER } from "@environment";
+import * as Type from "@type";
+
+// Binary
+import Writer from "@binary/writer";
+
+// Transport
+import Lifecycle from "./lifecycle";
+import Snapshot from "./snapshot";
+import Bridge from "./bridge";
+
+// Utility
+import resolveTarget from "@utility/resolve-target";
+
+// Security
+import Report from "@security/report";
+
+let started = false;
+
+const writer = new Writer();
+
+const playerWriters = new Map<Player, Writer>();
+const lastSentBuffers = new Map<Player, buffer>();
+const lastSentPerPacket = new Map<number, Map<Player, buffer>>();
+
+const flushQueue: Type.FlushEntry[] = [];
+const heldBuffers: Type.HeldBuffer[] = [];
+
+function send<T>(
+    id: number,
+    codec: Type.Codec.Internal<T> | undefined,
+    data: T | undefined,
+    target: Type.Target | undefined,
+    unreliable: boolean,
+    xor?: boolean,
+) {
+    if (!started) {
+        Report.log("warn", "OUTBOUND_NOT_STARTED", { id });
+        return;
+    }
+
+    Report.log("debug", "OUTBOUND_SEND_CALLED", { id, targetIsUndefined: target === undefined });
+
+    if (codec?._delta) {
+        flushQueue.push({
+            id,
+            start: 0,
+            end: 0,
+            target,
+            unreliable,
+            codec: codec as Type.Codec.Internal<unknown>,
+            data: data as unknown,
+            xor: xor ?? true,
+        });
+        return;
+    }
+
+    const start = writer.offset;
+    writer.u16(id);
+    if (codec !== undefined) codec.write(writer, data as T);
+
+    flushQueue.push({
+        id,
+        start,
+        end: writer.offset,
+        target,
+        unreliable,
+        codec: codec as Type.Codec.Internal<unknown>,
+        data: data as unknown,
+        xor: xor ?? true,
+    });
+}
+
+function packetChanged(id: number, player: Player, s: number, e: number): boolean {
+    if (!lastSentPerPacket.has(id)) lastSentPerPacket.set(id, new Map());
+    const playerMap = lastSentPerPacket.get(id)!;
+
+    const last = playerMap.get(player);
+    const size = e - s;
+
+    if (last !== undefined && buffer.len(last) === size) {
+        let same = true;
+        for (let i = 0; i < size; i++) {
+            if (buffer.readu8(writer.buf, s + i) !== buffer.readu8(last, i)) {
+                same = false;
+                break;
+            }
+        }
+        if (same) return false;
+    }
+
+    const newBuf = writer.copyOut(s, e);
+    playerMap.set(player, newBuf);
+    return true;
+}
+
+function flush() {
+    if (flushQueue.size() === 0) return;
+
+    if (IS_SERVER) {
+        for (const entry of flushQueue) {
+            const players = resolveTarget(entry.target);
+
+            if (players.size() === 0) {
+                Report.log("debug", "OUTBOUND_NO_RECIPIENTS", { id: entry.id });
+            }
+
+            for (const player of players) {
+                const pw = getPlayerWriter(player);
+
+                if (entry.codec?._delta) {
+                    Snapshot.setCurrentPlayer(player);
+                    const before = pw.used();
+                    pw.u16(entry.id);
+                    entry.codec.write(pw, entry.data);
+                    const after = pw.used();
+                    Report.log("debug", "OUTBOUND_DELTA_SIZE", {
+                        player,
+                        id: entry.id,
+                        bytes: after - before,
+                    });
+                    Snapshot.setCurrentPlayer(undefined);
+                } else if (!entry.xor || packetChanged(entry.id, player, entry.start, entry.end)) {
+                    pw.bytes(writer.buf, entry.start, entry.end - entry.start);
+                }
+            }
+        }
+
+        for (const [player, playerWriter] of playerWriters) {
+            const used = playerWriter.used();
+            if (used === 0) {
+                playerWriter.reset();
+                continue;
+            }
+
+            const buf = playerWriter.copyOut(0, used);
+            if (!Lifecycle.isReady(player)) {
+                holdForPlayer(player, buf, false);
+            } else {
+                fireToPlayer(player, buf, false);
+            }
+
+            playerWriter.reset();
+        }
+
+        playerWriters.clear();
+    } else {
+        for (const entry of flushQueue) {
+            if (entry.codec?._delta) {
+                writer.u16(entry.id);
+                entry.codec.write(writer, entry.data);
+            }
+        }
+
+        const used = writer.used();
+        if (used > 0) {
+            const buf = writer.copyOut(0, used);
+            Bridge.fireReliable(undefined, buf);
+        }
+    }
+
+    flushQueue.clear();
+    writer.reset();
+}
+
+function getPlayerWriter(player: Player): Writer {
+    if (!playerWriters.has(player)) {
+        playerWriters.set(player, new Writer());
+    }
+
+    return playerWriters.get(player)!;
+}
+
+function holdForPlayer(player: Player, buf: buffer, unreliable: boolean) {
+    heldBuffers.push({ player, buf, unreliable });
+    Report.log("debug", "OUTBOUND_HELD", { player, raw: buffer.len(buf) });
+}
+
+function fireToPlayer(player: Player, buf: buffer, unreliable: boolean) {
+    if (unreliable) {
+        Bridge.fireUnreliable(player, buf);
+    } else {
+        Bridge.fireReliable(player, buf);
+    }
+    Report.log("debug", "OUTBOUND_FIRED", { player, raw: buffer.len(buf), unreliable });
+}
+
+function releasePlayer(player: Player) {
+    const stillHeld: Type.HeldBuffer[] = [];
+    let released = 0;
+
+    for (const held of heldBuffers) {
+        if (held.player === player) {
+            fireToPlayer(held.player, held.buf, held.unreliable);
+            released++;
+        } else {
+            stillHeld.push(held);
+        }
+    }
+
+    if (released > 0) {
+        Report.log("debug", "OUTBOUND_RELEASED", { player, count: released });
+    }
+
+    heldBuffers.clear();
+    for (const h of stillHeld) heldBuffers.push(h);
+}
+
+function cleanupPlayer(player: Player) {
+    const stillHeld: Type.HeldBuffer[] = [];
+    let dropped = 0;
+
+    for (const held of heldBuffers) {
+        if (held.player !== player) {
+            stillHeld.push(held);
+        } else {
+            dropped++;
+        }
+    }
+
+    if (dropped > 0) {
+        Report.log("debug", "OUTBOUND_DROPPED", { player, count: dropped });
+    }
+
+    heldBuffers.clear();
+    for (const h of stillHeld) heldBuffers.push(h);
+}
+
+function start() {
+    started = true;
+    Lifecycle.onReady((player) => releasePlayer(player));
+    Lifecycle.onLeave((player) => {
+        lastSentPerPacket.forEach((playerMap) => playerMap.delete(player));
+        lastSentBuffers.delete(player);
+        Snapshot.clearPlayer(player);
+        cleanupPlayer(player);
+    });
+}
+
+const Outbound = {
+    start,
+    send,
+    flush,
+};
+
+export default Outbound;
+```
+
+## package/src/transport/registry.ts (88 lines)
+```ts
+// Internal
+import * as Type from "@type";
+
+// Security
+import Report from "@security/report";
+
+export interface Definition {
+    id: number;
+    name: string;
+    codec: Type.Codec.Internal<unknown> | undefined;
+    handler: ((player: Player, data: unknown) => void) | undefined;
+    unreliable: boolean;
+}
+
+const byName = new Map<string, Definition>();
+const byId = new Map<number, Definition>();
+const pending: Definition[] = [];
+
+let finalized = false;
+
+function register(
+    name: string,
+    codec: Type.Codec.Internal<unknown> | undefined,
+    unreliable: boolean,
+): Definition {
+    if (finalized) {
+        Report.log("fatal", "REGISTRY_ALREADY_FINALIZED", { name });
+    }
+
+    if (byName.has(name)) {
+        Report.log("fatal", "REGISTRY_DUPLICATE_NAME", { name });
+    }
+
+    const def: Definition = {
+        id: 0,
+        name,
+        codec,
+        handler: undefined,
+        unreliable,
+    };
+
+    byName.set(name, def);
+    pending.push(def);
+
+    return def;
+}
+
+function finalize() {
+    if (finalized) return;
+    finalized = true;
+
+    pending.sort((a, b) => a.name < b.name);
+
+    let nextId = 1;
+    for (const def of pending) {
+        def.id = nextId++;
+        byId.set(def.id, def);
+    }
+
+    pending.clear();
+}
+
+function setHandler(name: string, handler: (player: Player, data: unknown) => void) {
+    const def = byName.get(name);
+    if (def === undefined) {
+        Report.log("warn", "REGISTRY_HANDLER_FOR_UNKNOWN", { name });
+        return;
+    }
+    def.handler = handler;
+}
+
+function getById(id: number): Definition | undefined {
+    return byId.get(id);
+}
+
+function getByName(name: string): Definition | undefined {
+    return byName.get(name);
+}
+
+const Registry = {
+    register,
+    finalize,
+    setHandler,
+    getById,
+    getByName,
+};
+
+export default Registry;
+```
+
+## package/src/transport/snapshot.ts (67 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import { IS_SERVER } from "@environment";
+
+// Security
+import Report from "@security/report";
+
+let currentPlayer: Player | undefined;
+let nextId = 1;
+
+export function allocId(): number {
+    return nextId++;
+}
+
+export function setCurrentPlayer(player: Player | undefined): void {
+    currentPlayer = player;
+}
+export function getCurrentPlayer(): Player | undefined {
+    return currentPlayer;
+}
+
+const clientCache = new Map<number, unknown>();
+const serverCache = new Map<number, Map<Player, unknown>>();
+
+export function getCache(id: number, player?: Player): unknown | undefined {
+    if (IS_SERVER) {
+        if (player === undefined) {
+            Report.log("warn", "BASELINE_SERVER_NO_PLAYER", { id });
+            return undefined;
+        }
+        return serverCache.get(id)?.get(player);
+    }
+    return clientCache.get(id);
+}
+
+export function setCache(id: number, value: unknown, player?: Player): void {
+    if (IS_SERVER) {
+        if (player === undefined) {
+            Report.log("warn", "BASELINE_SERVER_NO_PLAYER", { id });
+            return;
+        }
+        if (!serverCache.has(id)) serverCache.set(id, new Map());
+        serverCache.get(id)!.set(player, value);
+    } else {
+        clientCache.set(id, value);
+    }
+}
+
+export function clearPlayer(player: Player): void {
+    for (const [_, playerMap] of serverCache) {
+        playerMap.delete(player);
+    }
+}
+
+const Snapshot = {
+    allocId,
+    getCache,
+    setCache,
+    clearPlayer,
+
+    setCurrentPlayer,
+    getCurrentPlayer,
+};
+
+export default Snapshot;
+```
+
+## package/src/type.ts (125 lines)
+```ts
+// Binary
+import Cursor from "./binary/cursor";
+import Writer from "./binary/writer";
+
+export type { Writer, Cursor };
+
+export namespace Codec {
+    export type External<T> = {
+		/** @hidden */ readonly _codec: T;
+    };
+
+    export type Internal<T> = Codec.External<T> & {
+        write: (writer: Writer, value: T) => void;
+        read: (cursor: Cursor) => T;
+
+        _directWrite: (buff: buffer, offset: number, value: T) => void;
+        _directRead: (buff: buffer, offset: number) => T;
+
+        _default: T;
+
+        _delta?: boolean;
+        _size?: number;
+    };
+
+    export interface Vector2 extends Codec.External<globalThis.Vector2> {
+        (x: Codec.External<number>, y: Codec.External<number>): Codec.External<globalThis.Vector2>;
+    }
+    export interface Vector3 extends Codec.External<globalThis.Vector3> {
+        (x: Codec.External<number>, y: Codec.External<number>): Codec.External<globalThis.Vector3>;
+    }
+
+    export interface CFrame extends Codec.External<globalThis.CFrame> {
+        (
+            position: Codec.External<number>,
+            rotation: Codec.External<number>,
+        ): Codec.External<globalThis.CFrame>;
+    }
+
+    export interface UDim extends Codec.External<globalThis.UDim> {
+        (offset: Codec.External<number>): Codec.External<globalThis.UDim>;
+    }
+    export interface UDim2 extends Codec.External<globalThis.UDim2> {
+        (
+            xOffset: Codec.External<number>,
+            yOffset: Codec.External<number>,
+        ): Codec.External<globalThis.UDim2>;
+    }
+
+    export interface NumberRange extends Codec.External<globalThis.NumberRange> {
+        (
+            min: Codec.External<number>,
+            max: Codec.External<number>,
+        ): Codec.External<globalThis.NumberRange>;
+    }
+
+    export interface Rect extends Codec.External<globalThis.Rect> {
+        (
+            min: Codec.External<globalThis.Vector2>,
+            max: Codec.External<globalThis.Vector2>,
+        ): Codec.External<globalThis.Rect>;
+    }
+
+    export interface Ray extends Codec.External<globalThis.Ray> {
+        (
+            min: Codec.External<globalThis.Vector3>,
+            max: Codec.External<globalThis.Vector3>,
+        ): Codec.External<globalThis.Ray>;
+    }
+
+    export interface String extends Codec.External<string> {
+        (len: Codec.External<number>): Codec.External<string>;
+    }
+
+    export type Union<V extends Record<string, Codec.External<unknown>>> = {
+        [K in keyof V]: { type: K } & Codec.Infer<V[K]>;
+    }[keyof V];
+
+    export type Infer<C extends Codec.External<unknown>> =
+        C extends Codec.External<infer T> ? T : never;
+    export type InferSchema<S extends Record<string, Codec.External<unknown>>> = {
+        [K in keyof S]: Codec.Infer<S[K]>;
+    };
+}
+
+export type Target = Player | Player[] | ["Exclude", Player | Player[]];
+
+export namespace Packet {
+    export type Options = {
+        unreliable?: boolean;
+        xor?: boolean;
+    };
+
+    export type Definition<T> = [T] extends [undefined]
+        ? {
+            send: (target?: Target) => void;
+            on: (handler: (player: Player) => void) => void;
+        }
+        : {
+            send: (data: T, target?: Target) => void;
+            on: (handler: (player: Player, data: T) => void) => void;
+        };
+}
+
+export type StartOptions = {
+    debug?: boolean;
+};
+
+export type HeldBuffer = {
+    player: Player;
+    buf: buffer;
+    unreliable: boolean;
+};
+export type FlushEntry = {
+    id: number;
+
+    start: number;
+    end: number;
+    target: Target | undefined;
+    unreliable: boolean;
+
+    codec: Codec.Internal<unknown>;
+    data: unknown;
+
+    xor: boolean;
+};
+```
+
+## package/src/utility/bool-pack.ts (92 lines)
+```ts
+//!optimize 2
+//!native
+
+// Internal
+import * as Type from "@type";
+
+export function packBoolsKeyed(
+    writer: Type.Writer,
+    value: Record<string, unknown>,
+    boolKeys: string[],
+    bitmapBytes: number,
+) {
+    let bitmap = 0;
+    const len = boolKeys.size();
+    for (let i = 0; i < len; i++) {
+        if (value[boolKeys[i]] === true) {
+            bitmap = bit32.bor(bitmap, bit32.lshift(1, i));
+        }
+    }
+    if (bitmapBytes === 1) writer.u8(bitmap);
+    else if (bitmapBytes === 2) writer.u16(bitmap);
+    else writer.u32(bitmap);
+}
+
+export function unpackBoolsKeyed(
+    cursor: Type.Cursor,
+    result: Record<string, unknown>,
+    boolKeys: string[],
+    bitmapBytes: number,
+) {
+    let bitmap: number;
+    if (bitmapBytes === 1) bitmap = cursor.u8();
+    else if (bitmapBytes === 2) bitmap = cursor.u16();
+    else bitmap = cursor.u32();
+
+    const len = boolKeys.size();
+    for (let i = 0; i < len; i++) {
+        result[boolKeys[i]] = bit32.band(bitmap, bit32.lshift(1, i)) !== 0;
+    }
+}
+
+export function packBoolArray(writer: Type.Writer, value: boolean[], len: number) {
+    const byteCount = math.ceil(len / 8);
+    writer.ensureSpace(byteCount);
+    const buf = writer.buf;
+    let off = writer.offset;
+    for (let i = 0; i < len; i += 8) {
+        let byte = 0;
+        for (let b = 0; b < 8 && i + b < len; b++) {
+            if (value[i + b]) byte = bit32.bor(byte, bit32.lshift(1, b));
+        }
+        buffer.writeu8(buf, off, byte);
+        off += 1;
+    }
+    writer.offset += byteCount;
+}
+
+export function unpackBoolArray(cursor: Type.Cursor, len: number): boolean[] {
+    const result: boolean[] = [];
+    for (let i = 0; i < len; i += 8) {
+        const byte = cursor.u8();
+        for (let b = 0; b < 8 && i + b < len; b++) {
+            result[i + b] = bit32.band(byte, bit32.lshift(1, b)) !== 0;
+        }
+    }
+    return result;
+}
+
+export function getBitmapBytes(boolCount: number): number {
+    return boolCount === 0 ? 0 : boolCount <= 8 ? 1 : boolCount <= 16 ? 2 : 4;
+}
+
+export function splitBoolKeys(
+    internalFields: Record<string, Type.Codec.Internal<unknown>>,
+    allKeys: string[],
+): { dataKeys: string[]; boolKeys: string[] } {
+    const dataKeys: string[] = [];
+    const boolKeys: string[] = [];
+
+    allKeys.forEach((key) => {
+        if (typeOf(internalFields[key]._default) === "boolean") {
+            boolKeys.push(key);
+        } else {
+            dataKeys.push(key);
+        }
+    });
+
+    return { dataKeys, boolKeys };
+}
+
+export const packBools = packBoolsKeyed;
+export const unpackBools = unpackBoolsKeyed;
+```
+
+## package/src/utility/resolve-target.ts (40 lines)
+```ts
+// Package
+import { Players } from "@rbxts/services";
+
+// Internal
+import * as Type from "@type";
+
+function isPlayer(value: unknown): value is Player {
+    return typeIs(value, "Instance") && value.IsA("Player");
+}
+
+function isExcludeTuple(target: Type.Target): target is ["Exclude", Player | Player[]] {
+    return typeIs(target, "table") && (target as defined[])[0] === "Exclude";
+}
+
+function isPlayerArray(value: Player | Player[]): value is Player[] {
+    return typeIs(value, "table");
+}
+
+function resolveTarget(target: Type.Target | undefined): Player[] {
+    if (target === undefined) return Players.GetPlayers();
+    if (isPlayer(target)) return [target];
+
+    if (isExcludeTuple(target)) {
+        const excluded = target[1];
+        const excludedArray = isPlayerArray(excluded) ? excluded : [excluded];
+        const excludedSet = new Set<Player>(excludedArray);
+
+        const result: Player[] = [];
+        for (const player of Players.GetPlayers()) {
+            if (!excludedSet.has(player)) {
+                result.push(player);
+            }
+        }
+        return result;
+    }
+
+    return target as Player[];
+}
+
+export default resolveTarget;
+```
+
