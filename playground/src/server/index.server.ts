@@ -1,85 +1,74 @@
+//!optimize 2
+
 // Package
-import { Players } from "@rbxts/services";
+import { RunService, Players } from "@rbxts/services";
 import Typenet from "@rbxts/typenet";
 import Lync from "@rbxts/lync";
 
 // Shared
-import * as Harness from "@shared/harness";
-import { blinkCases, extendedCases, handshake, bench } from "@shared/scenarios";
+// import { blinkCases, extendedCases, bench as cfg, handshake } from "@shared/scenarios";
+// import { bench, run } from "@shared/harness";
 
-Typenet.start({ debug: false });
+// // ── Start ─────────────────────────────────────────────────────────────────────
+//
+// Typenet.start({ debug: false });
 Lync.configure({ channelMaxSize: 1048576 });
 Lync.start();
 
-for (const c of blinkCases) {
-    c.typenet.onRegister();
-    c.lync.onRegister();
-}
-for (const c of extendedCases) {
-    c.typenet.onRegister();
-    c.lync.onRegister();
-}
-
-// Register handler FIRST
-let clientReady = false;
-handshake.ClientReady.on(() => {
-    clientReady = true;
-});
-
-// Wait for player
-const players = Players.GetPlayers();
-const player = players.size() > 0 ? players[0] : Players.PlayerAdded.Wait()[0];
-
-// Give client time to finish Typenet handshake
-task.wait(2);
-
-// Then signal client
-handshake.ServerCpuDone.send(true, player);
-
-// Now wait
-while (!clientReady) task.wait(0.1);
-
-// ── Blink-comparable s2c ─────────────────────────────────────────────────
-
-Harness.header(`s2c ${bench.blinkFiresPerFrame} fires/frame ${bench.blinkSeconds}s`);
-
-for (const c of blinkCases) {
-    Harness.throughputCompare(
-        c.label,
-        bench.blinkFiresPerFrame,
-        bench.blinkSeconds,
-        c.typenet.pool,
-        (d) => c.typenet.send(d, player),
-        c.lync.pool,
-        (d) => c.lync.send(d, player),
-    );
-    task.wait(5);
-}
-
-// ── Extended s2c ─────────────────────────────────────────────────────────
-
-Harness.header(`Extended s2c ${bench.extendedFiresPerFrame} fires/frame ${bench.extendedSeconds}s`);
-
-for (const c of extendedCases) {
-    Harness.throughputCompare(
-        c.label,
-        bench.extendedFiresPerFrame,
-        bench.extendedSeconds,
-        c.typenet.pool,
-        (d) => c.typenet.send(d, player),
-        c.lync.pool,
-        (d) => c.lync.send(d, player),
-    );
-    task.wait(5);
-}
-
-let clientDone = false;
-handshake.ClientDone.on(() => {
-    clientDone = true;
-});
-
-handshake.ServerSwap.send(true, player);
-
-while (!clientDone) task.wait(0.1);
-
-Harness.header("Done");
+// for (const c of blinkCases) {
+//     c.typenet.onRegister();
+//     c.lync.onRegister();
+// }
+// for (const c of extendedCases) {
+//     c.typenet.onRegister();
+//     c.lync.onRegister();
+// }
+//
+// // ── Wait for client ───────────────────────────────────────────────────────────
+//
+// print("=== waiting for client ===");
+// let clientReady = false;
+// handshake.ClientReady.on(() => {
+//     clientReady = true;
+// });
+//
+// while (!clientReady) RunService.Heartbeat.Wait();
+// print("=== client connected — benchmarking ===");
+//
+// const player = Players.GetPlayers()[0]!;
+// task.wait(2);
+//
+// // ── Focused benches (losses only) ────────────────────────────────────────────
+//
+// const focused = [
+//     "cframe_walking__delta",
+//     "bool_arr_1000__1flip",
+//     "entity_deltaArr_100__3mut",
+//     "state_delta__1mut",
+//     "vec3_walking__full",
+//     "counter_int__full",
+// ];
+//
+// // for (const c of blinkCases) {
+// //     const pool = c.lync.pool.map((d) => [d] as defined[]);
+// //     bench(c.label, cfg.blinkFiresPerFrame, cfg.blinkSeconds,
+// //         pool, (d) => c.lync.send(d[0], player),
+// //         pool, (d) => c.typenet.send(d[0], player));
+// // }
+//
+// for (const c of extendedCases) {
+//     if (!focused.includes(c.label)) continue;
+//     const pool = c.lync.pool.map((d) => [d] as defined[]);
+//     bench(
+//         c.label,
+//         cfg.extendedFiresPerFrame,
+//         cfg.extendedSeconds,
+//         pool,
+//         (d) => c.lync.send(d[0], player),
+//         pool,
+//         (d) => c.typenet.send(d[0], player),
+//     );
+// }
+//
+// run();
+// handshake.ServerCpuDone.send(true);

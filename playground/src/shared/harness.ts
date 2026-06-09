@@ -1,97 +1,185 @@
-//!optimize 2
-
-// Package
-import { RunService, Stats } from "@rbxts/services";
-
-const LABEL_W = 28;
-
-function pct(sorted: number[], p: number): number {
-    const i = math.max(1, math.floor((sorted.size() * p) / 100 + 0.5));
-    return sorted[math.max(0, math.min(i - 1, sorted.size() - 1))];
-}
-
-export function header(title: string) {
-    const bar = string.rep("=", 64);
-    print(bar);
-    print(string.rep(" ", math.max(0, math.floor((64 - title.size()) / 2))) + title);
-    print(bar);
-}
-
-export function row(label: string, value: string) {
-    const pad = string.rep(" ", math.max(0, LABEL_W - label.size()));
-    print(`  ${label}${pad} ${value}`);
-}
-
-export function throughputCompare(
-    label: string,
-    firesPerFrame: number,
-    seconds: number,
-    typenetPool: defined[][],
-    typenetSend: (d: defined[]) => void,
-    lyncPool: defined[][],
-    lyncSend: (d: defined[]) => void,
-) {
-    const tnResult = runThroughput(firesPerFrame, seconds, typenetPool, typenetSend);
-    task.wait(5);
-
-    const lyResult = runThroughput(firesPerFrame, seconds, lyncPool, lyncSend);
-    task.wait(5);
-
-    // Print
-    print(`\n  ${label}`);
-    print("  ┌──────────────┬───────┬────────────┬────────────┐");
-    print("  │ Tool         │  FPS  │  Kbps P50  │  Kbps P95  │");
-    print("  ├──────────────┼───────┼────────────┼────────────┤");
-    print(
-        `  │ typenet      │ ${string.format("%5d", tnResult.fps)} │ ${string.format("%10.2f", tnResult.p50)} │ ${string.format("%10.2f", tnResult.p95)} │`,
-    );
-    print(
-        `  │ lync         │ ${string.format("%5d", lyResult.fps)} │ ${string.format("%10.2f", lyResult.p50)} │ ${string.format("%10.2f", lyResult.p95)} │`,
-    );
-    print("  └──────────────┴───────┴────────────┴────────────┘");
-}
-
-function runThroughput(
-    firesPerFrame: number,
-    seconds: number,
-    pool: defined[][],
-    send: (d: defined[]) => void,
-): { fps: number; p50: number; p95: number } {
-    const fps: number[] = [];
-    const kbps: number[] = [];
-    let frames = 0;
-    let elapsed = 0;
-    const n = pool.size();
-
-    const conn = RunService.Heartbeat.Connect((dt) => {
-        frames++;
-        elapsed += dt;
-        for (let i = 1; i <= firesPerFrame; i++) {
-            send(pool[(frames * 105 + i) % n]);
-        }
-        if (elapsed >= 1) {
-            kbps.push(Stats.DataSendKbps);
-            fps.push(frames);
-            frames = 0;
-            elapsed = 0;
-        }
-    });
-
-    task.wait(seconds);
-    conn.Disconnect();
-
-    const timeout = os.clock() + 15;
-    while (Stats.DataSendKbps > 10 && os.clock() < timeout) {
-        RunService.Heartbeat.Wait();
-    }
-    task.wait(2);
-
-    fps.sort();
-    kbps.sort();
-
-    return {
-        fps: fps.size() > 0 ? math.floor(pct(fps, 50) + 0.5) : 0,
-        p50: kbps.size() > 0 ? pct(kbps, 50) : 0,
-        p95: kbps.size() > 0 ? pct(kbps, 95) : 0,
-    };
-}
+// // Package
+// import { RunService, Stats } from "@rbxts/services";
+//
+// interface Result {
+//     fps: number;
+//     p50: number;
+// }
+// interface Entry {
+//     label: string;
+//     fires: number;
+//     lync: Result;
+//     typenet: Result;
+// }
+// interface Queued {
+//     label: string;
+//     fires: number;
+//     secs: number;
+//     lPool: defined[][];
+//     lSend: (d: defined[]) => void;
+//     tnPool: defined[][];
+//     tnSend: (d: defined[]) => void;
+// }
+//
+// const queue: Queued[] = [];
+// const log: Entry[] = [];
+//
+// const PFXW = 12;
+// const FPSW = 7;
+// const KBW = 10;
+// const BW = 6;
+// const COL_W = PFXW + FPSW + 1 + 2 + KBW + 1 + 2 + BW + 1;
+//
+// function rpad(s: string, w: number) {
+//     return s + string.rep(" ", math.max(0, w - s.size()));
+// }
+//
+// function win(better: boolean, worse: boolean) {
+//     return better ? "✓" : worse ? "✗" : " ";
+// }
+//
+// function block(r: Entry): string[] {
+//     const lPfx = "  ├ Lync    ";
+//     const tPfx = "  └ Typenet ";
+//
+//     const lB = math.round((r.lync.p50 * 125) / (r.lync.fps * r.fires));
+//     const tB = math.round((r.typenet.p50 * 125) / (r.typenet.fps * r.fires));
+//
+//     const lLine =
+//         lPfx +
+//         rpad(tostring(r.lync.fps) + "fps", FPSW) +
+//         " " +
+//         "  " +
+//         rpad(string.format("%.1f", r.lync.p50) + "kb", KBW) +
+//         " " +
+//         "  " +
+//         rpad(tostring(lB) + "B", BW) +
+//         " ";
+//
+//     const tLine =
+//         tPfx +
+//         rpad(tostring(r.typenet.fps) + "fps", FPSW) +
+//         win(r.typenet.fps > r.lync.fps, r.typenet.fps < r.lync.fps) +
+//         "  " +
+//         rpad(string.format("%.1f", r.typenet.p50) + "kb", KBW) +
+//         win(r.typenet.p50 < r.lync.p50, r.typenet.p50 > r.lync.p50) +
+//         "  " +
+//         rpad(tostring(tB) + "B", BW) +
+//         win(tB < lB, tB > lB);
+//
+//     return [rpad(r.label, COL_W), lLine, tLine];
+// }
+//
+// function measure(
+//     fires: number,
+//     secs: number,
+//     pool: defined[][],
+//     send: (d: defined[]) => void,
+// ): Result {
+//     const kb: number[] = [];
+//     const fp: number[] = [];
+//     const n = pool.size();
+//
+//     let cursor = 0;
+//     let secFrames = 0;
+//     let elapsed = 0;
+//
+//     const c = RunService.Heartbeat.Connect((dt) => {
+//         secFrames++;
+//         elapsed += dt;
+//
+//         for (let i = 0; i < fires; i++) {
+//             send(pool[cursor % n]);
+//             cursor++;
+//         }
+//
+//         if (elapsed >= 1) {
+//             kb.push(Stats.DataSendKbps);
+//             fp.push(secFrames);
+//             secFrames = 0;
+//             elapsed = 0;
+//         }
+//     });
+//
+//     task.wait(secs);
+//     c.Disconnect();
+//     task.wait(1);
+//     kb.sort();
+//     fp.sort();
+//
+//     const p = (a: number[], pct: number) => a[math.max(0, math.ceil(a.size() * pct) - 1)] ?? 0;
+//     return { fps: p(fp, 0.5), p50: p(kb, 0.5) };
+// }
+//
+// function drain() {
+//     const t = os.clock() + 6;
+//     while (Stats.DataSendKbps > 10 && os.clock() < t) RunService.Heartbeat.Wait();
+//     task.wait(2);
+// }
+//
+// export function bench(
+//     label: string,
+//     fires: number,
+//     secs: number,
+//     lPool: defined[][],
+//     lSend: (d: defined[]) => void,
+//     tnPool: defined[][],
+//     tnSend: (d: defined[]) => void,
+// ) {
+//     queue.push({ label, fires, secs, lPool, lSend, tnPool, tnSend });
+// }
+//
+// export function run() {
+//     const typenetResults: Result[] = [];
+//     const lyncResults: Result[] = [];
+//
+//     print(`── TYPENET (${queue.size()} benches) ──`);
+//     for (const q of queue) {
+//         print(`  → ${q.label}`);
+//         typenetResults.push(measure(q.fires, q.secs, q.tnPool, q.tnSend));
+//         task.wait(2);
+//     }
+//
+//     print(`── LYNC (${queue.size()} benches) ──`);
+//     for (const q of queue) {
+//         print(`  → ${q.label}`);
+//         lyncResults.push(measure(q.fires, q.secs, q.lPool, q.lSend));
+//         task.wait(2);
+//     }
+//
+//     for (let i = 0; i < queue.size(); i++) {
+//         log.push({
+//             label: queue[i].label,
+//             fires: queue[i].fires,
+//             lync: lyncResults[i],
+//             typenet: typenetResults[i],
+//         });
+//     }
+//
+//     drain();
+//     summary();
+// }
+//
+// export function summary() {
+//     const W = COL_W * 4 + 3 * 2;
+//     print(`── RESULTS ──${string.rep("─", W - 13)}`);
+//     for (let i = 0; i < log.size(); i += 4) {
+//         const group: string[][] = [];
+//         for (let j = 0; j < 4; j++)
+//             group[j] =
+//                 log[i + j] !== undefined
+//                     ? block(log[i + j])
+//                     : [rpad("", COL_W), rpad("", COL_W), rpad("", COL_W)];
+//         for (let line = 0; line < 3; line++)
+//             print(
+//                 group[0][line] +
+//                 "  " +
+//                 group[1][line] +
+//                 "  " +
+//                 group[2][line] +
+//                 "  " +
+//                 group[3][line],
+//             );
+//     }
+//     print(string.rep("─", W));
+// }

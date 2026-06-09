@@ -38,6 +38,9 @@
             "@utility/*": [
                 "./src/utility/*"
             ],
+            "@internal/*": [
+                "./src/internal/*"
+            ],
             "@constant": [
                 "./src/constant"
             ],
