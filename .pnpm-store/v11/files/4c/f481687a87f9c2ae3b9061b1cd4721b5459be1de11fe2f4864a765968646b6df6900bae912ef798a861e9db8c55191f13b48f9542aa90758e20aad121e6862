@@ -1,0 +1,21 @@
+import type ts from "typescript";
+interface PluginConfig {
+    verbose?: boolean;
+    typesOutput?: string;
+}
+export type SidecarEntry = {
+    params: string[];
+    returns: string;
+    locals: Record<string, string>;
+};
+export type SidecarMeta = {
+    requirePath: string;
+};
+export type SidecarData = {
+    __meta__?: SidecarMeta;
+    [key: string]: SidecarEntry | SidecarMeta | undefined;
+};
+export default function transformer(program: ts.Program, config: PluginConfig | undefined, { ts: t }: {
+    ts: typeof ts;
+}): ts.TransformerFactory<ts.SourceFile>;
+export {};

@@ -2,9 +2,9 @@
     "name": "typenet-workspace",
     "private": true,
     "scripts": {
-        "build": "bunx pnpm --filter playground build",
-        "compile": "concurrently \"bunx pnpm --filter playground compile\" \"bunx pnpm --filter package compile\"",
-        "dev": "concurrently \"bunx pnpm --filter playground dev\" \"bunx pnpm --filter package dev\""
+        "build": "bunx pnpm --filter ./playground build",
+        "compile": "concurrently \"bunx pnpm --filter ./playground compile\" \"bunx pnpm --filter ./package compile\"",
+        "dev": "concurrently \"bunx pnpm --filter ./package watch\" \"bunx pnpm --filter ./playground dev\""
     },
     "packageManager": "pnpm@11.4.0",
     "dependencies": {
