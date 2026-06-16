@@ -1,61 +1,30 @@
 {
-    "compilerOptions": {
-        "target": "ESNext",
-        "module": "CommonJS",
-        "moduleResolution": "Node",
-        "noLib": true,
-        "strict": true,
-        "jsx": "react",
-        "jsxFactory": "React.createElement",
-        "jsxFragmentFactory": "React.Fragment",
-        "rootDir": "src",
-        "outDir": "out",
-        "moduleDetection": "force",
-        "typeRoots": [
-            "./node_modules/@rbxts"
-        ],
-        "allowSyntheticDefaultImports": true,
-        "resolveJsonModule": true,
-        "experimentalDecorators": true,
-        "downlevelIteration": true,
-        "declaration": true,
-        "paths": {
-            "@api/*": [
-                "./src/api/*"
-            ],
-            "@binary/*": [
-                "./src/binary/*"
-            ],
-            "@codec/*": [
-                "./src/codec/*"
-            ],
-            "@transport/*": [
-                "./src/transport/*"
-            ],
-            "@security/*": [
-                "./src/security/*"
-            ],
-            "@utility/*": [
-                "./src/utility/*"
-            ],
-            "@internal/*": [
-                "./src/internal/*"
-            ],
-            "@constant": [
-                "./src/constant"
-            ],
-            "@environment": [
-                "./src/environment"
-            ],
-            "@type": [
-                "./src/type"
-            ]
-        }
-    },
-    "include": [
-        "src"
-    ],
-    "exclude": [
-        "out"
-    ]
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "CommonJS",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"strict": true,
+		"jsx": "react",
+		"jsxFactory": "React.createElement",
+		"jsxFragmentFactory": "React.Fragment",
+		"rootDir": "src",
+		"outDir": "out",
+		"moduleDetection": "force",
+		"typeRoots": ["./node_modules/@rbxts"],
+		"allowSyntheticDefaultImports": true,
+		"resolveJsonModule": true,
+		"experimentalDecorators": true,
+		"downlevelIteration": true,
+		"declaration": true,
+		"paths": {
+			"@transport/*": ["./src/transport/*"],
+			"@define/*": ["./src/define/*"],
+			"@binary/*": ["./src/binary/*"],
+			"@constant": ["./src/constant"],
+			"@type": ["./src/type"]
+		}
+	},
+	"include": ["src"],
+	"exclude": ["out"]
 }

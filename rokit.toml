@@ -1,3 +1,5 @@
 [tools]
 rojo = "rojo-rbx/rojo@7.6.1"
 lune = "lune-org/lune@0.10.4"
+rotor = "uproot/rotor@1.2.0"
+lumine = "loner1536/lumine@0.2.0"
