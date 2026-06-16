@@ -1,4 +1,0 @@
-import type { LuauIR, TypeDecl } from "./type-extractor";
-export declare function emitIR(ir: LuauIR, depth?: number): string;
-export declare function emitDecl(decl: TypeDecl): string;
-export declare function emitTypesFile(decls: Map<string, TypeDecl>, usedNames: Set<string>): string;

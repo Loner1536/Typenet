@@ -1,3 +1,0 @@
-import type { SidecarData } from "./transformer";
-export declare function annotateContent(content: string, sidecar: SidecarData): string;
-export declare function annotateFile(luauPath: string, sidecar: SidecarData): void;
